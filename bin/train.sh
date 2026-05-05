@@ -3,14 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CONFIG="${PROJECT_ROOT}/configs/caers_data.yaml"
-
-# W&B Configuration
-WANDB_API_KEY="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"
-WANDB_PROJECT="caers-emotion-recognition"
-WANDB_ENTITY="Tim-1"
-WANDB_RUN_NAME="CAER-Dual Stream-$(date +%Y%m%d-%H%M%S)"
-WANDB_OFFLINE=""
+CONFIG="${PROJECT_ROOT}/configs/caernet.yaml"
 
 # Parse optional arguments
 while [[ $# -gt 0 ]]; do
@@ -31,6 +24,10 @@ while [[ $# -gt 0 ]]; do
             CONFIG="$2"
             shift 2
             ;;
+        --augment)
+            AUGMENT="--augment"
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -39,6 +36,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --run-name NAME    W&B run name"
             echo "  --offline          Run W&B in offline mode"
             echo "  --config PATH      Custom config file path"
+            echo "  --augment          Enable data augmentation"
             echo "  --help, -h         Show this help"
             exit 0
             ;;
@@ -50,8 +48,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+WANDB_API_KEY="${WANDB_API_KEY:-}"
+WANDB_PROJECT="${WANDB_PROJECT:-caers-emotion-recognition}"
+WANDB_ENTITY="${WANDB_ENTITY:-}"
+WANDB_RUN_NAME="${WANDB_RUN_NAME:-}"
+WANDB_OFFLINE="${WANDB_OFFLINE:-}"
+AUGMENT="${AUGMENT:-}"
+
 echo "================================"
-echo "Training CAER-Net"
+echo "Training Emotion Recognition"
 echo "================================"
 echo "Config: $CONFIG"
 echo "W&B Project: $WANDB_PROJECT"
@@ -63,16 +68,17 @@ cd "$PROJECT_ROOT"
 
 # Build command
 CMD=(
-    python scripts/train_caers.py
+    python scripts/train.py
     --config "$CONFIG"
-    --wandb-api-key "$WANDB_API_KEY"
-    --wandb-project "$WANDB_PROJECT"
 )
 
+[ -n "$WANDB_API_KEY" ] && CMD+=(--wandb-api-key "$WANDB_API_KEY")
+[ -n "$WANDB_PROJECT" ] && CMD+=(--wandb-project "$WANDB_PROJECT")
 [ -n "$WANDB_ENTITY" ] && CMD+=(--wandb-entity "$WANDB_ENTITY")
 [ -n "$WANDB_RUN_NAME" ] && CMD+=(--wandb-run-name "$WANDB_RUN_NAME")
 [ -n "$WANDB_OFFLINE" ] && CMD+=($WANDB_OFFLINE)
 [ -n "${RESUME_CHECKPOINT:-}" ] && CMD+=(--resume "$RESUME_CHECKPOINT")
+[ -n "$AUGMENT" ] && CMD+=($AUGMENT)
 
 # Run training
 echo "Running: ${CMD[*]}"
@@ -81,4 +87,3 @@ echo ""
 
 echo ""
 echo "Training complete!"
-echo "Checkpoints saved to: checkpoints/caers/"

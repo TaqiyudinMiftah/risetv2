@@ -1,77 +1,88 @@
-# CAER-S Pipeline (CAER-Net Focus)
+# Multi-Method Emotion Recognition Pipeline (CAER-S)
 
-This repository contains a focused pipeline for the CAER-S part of:
-"Context-Aware Emotion Recognition Networks" (ICCV 2019).
+Repository ini berisi pipeline modular untuk emosi recognition pada dataset **CAER-S**, dengan dukungan untuk **banyak metode** dari berbagai paper.
 
-Current scope:
-- Phase 1: project structure and reproducible config.
-- Phase 2: CAER-S data pipeline (manifest builder, stratified val split, diagnostics, PyTorch dataset, and smoke check).
-- Phase 3: minimal CAER-Net model (face stream, context stream, adaptive fusion), training, evaluation, and W&B monitoring.
+## Metode yang Tersedia
 
-## Expected CAER-S Layout
+| Method | Paper | Status |
+|--------|-------|--------|
+| `caernet` | Lee et al., "Context-Aware Emotion Recognition Networks", ICCV 2019 | Ready |
+| `zhou_cross_attention` | Zhou et al., "Emotion Recognition from Large-Scale Video Clips with Cross-Attention and Hybrid Feature Weighting Neural Networks", IJERPH 2023 | Ready |
+| `yang_ccim` | Yang et al., "Context De-Confounded Emotion Recognition", CVPR 2023 | Ready |
+| `glamor_net` | Le et al., "Global-Local Attention for Emotion Recognition", Neural Computing and Applications, 2022 | Ready |
 
-Point `dataset_root` to the folder that contains `train` and `test`.
-
-Example:
+## Struktur Repository (Multi-Method)
 
 ```text
-/path/to/CAER-S/
-  train/
-    Angry/
-    Disgust/
-    Fear/
-    Happy/
-    Neutral/
-    Sad/
-    Surprise/
-  test/
-    Angry/
-    Disgust/
-    Fear/
-    Happy/
-    Neutral/
-    Sad/
-    Surprise/
+.
+├── bin/                          # Helper bash scripts
+│   ├── setup_uv.sh              # UV environment setup
+│   ├── build_manifest.sh        # Build data manifest
+│   ├── smoke_test.sh            # Data pipeline smoke test
+│   ├── train.sh                 # Unified training script
+│   └── evaluate.sh              # Unified evaluation script
+├── configs/
+│   ├── caernet.yaml             # CAER-Net config
+│   ├── zhou_cross_attention.yaml # Zhou et al. config
+│   ├── yang_ccim.yaml           # Yang et al. (CCIM) config
+│   └── glamor_net.yaml          # Le et al. (GLAMOR-Net) config
+├── scripts/
+│   ├── build_caers_manifest.py  # Manifest builder CLI
+│   ├── smoke_data_pipeline.py   # Smoke test CLI
+│   ├── train.py                 # Unified training CLI (multi-method)
+│   └── evaluate.py              # Unified evaluation CLI (multi-method)
+├── src/
+│   ├── config/                  # Configuration loader
+│   │   └── config.py
+│   ├── datasets/                # Shared dataset utilities
+│   │   ├── caers_dataset.py
+│   │   └── transforms.py
+│   ├── engine/                  # Shared training/eval engine
+│   │   ├── metrics.py
+│   │   ├── trainer.py
+│   │   └── evaluator.py
+│   ├── models/                  # All methods/models
+│   │   ├── common.py            # Shared encoder builder
+│   │   ├── caernet/             # CAER-Net method
+│   │   │   └── model.py
+│   │   ├── zhou_cross_attention/ # Zhou et al. method
+│   │   │   └── model.py
+│   │   ├── yang_ccim/           # Yang et al. (CCIM) method
+│   │   │   ├── model.py
+│   │   │   └── confounder_builder.py
+│   │   └── glamor_net/          # Le et al. (GLAMOR-Net) method
+│   │       └── model.py
+│   └── utils/
+│       ├── io_utils.py
+│       └── data_manifest.py
+├── pyproject.toml
+├── requirements.txt
+└── README.md
 ```
 
-## Setup with UV (Recommended)
+## Menambahkan Metode Baru
 
-This project uses [uv](https://github.com/astral-sh/uv) for fast Python package management.
+Untuk menambahkan metode dari paper baru:
 
-### 1. Install uv
+1. **Buat direktori model**: `src/models/<method_name>/`
+2. **Implementasikan model**: Buat `model.py` dengan class yang mengimplementasikan `forward(face_image, context_image) -> dict`
+3. **Update config loader**: Tambahkan method-specific config di `src/config/config.py`
+4. **Buat config file**: `configs/<method_name>.yaml`
+5. **Register di scripts**: Update `build_model()` di `scripts/train.py` dan `scripts/evaluate.py`
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+Contoh minimal model:
+```python
+class MyNewModel(nn.Module):
+    def forward(self, face_image, context_image):
+        # ... your architecture ...
+        return {"logits": logits}
 ```
 
-### 2. Setup Environment
+## Setup
 
 ```bash
 ./bin/setup_uv.sh
-```
-
-Or manually:
-
-```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-```
-
-### 3. Generate Lockfile (Optional)
-
-```bash
-uv lock
-```
-
-### Alternative: pip
-
-If you prefer pip:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# atau manual: uv venv --python 3.12 && source .venv/bin/activate && uv pip install -e ".[dev]"
 ```
 
 ## Pipeline Steps
@@ -80,17 +91,9 @@ pip install -r requirements.txt
 
 ```bash
 ./bin/build_manifest.sh
+# atau dengan config tertentu:
+./bin/build_manifest.sh --config configs/zhou_cross_attention.yaml
 ```
-
-Or manually:
-
-```bash
-python scripts/build_caers_manifest.py --config configs/caers_data.yaml
-```
-
-Outputs:
-- `artifacts/caers/manifest_caers.jsonl` - JSONL manifest with per-sample metadata.
-- `artifacts/caers/diagnostics_caers.json` - Diagnostics with split/class counts.
 
 ### 2. Smoke Test Data Pipeline
 
@@ -98,151 +101,77 @@ Outputs:
 ./bin/smoke_test.sh
 ```
 
-Or manually:
+### 3. Train
 
 ```bash
-python scripts/smoke_data_pipeline.py --config configs/caers_data.yaml
-```
+# CAER-Net
+./bin/train.sh --config configs/caernet.yaml
 
-This checks:
-- Manifest can be loaded.
-- Label mapping is stable.
-- DataLoader returns tensors for both face and context streams.
+# Zhou et al. Cross-Attention
+./bin/train.sh --config configs/zhou_cross_attention.yaml
 
-### 3. Train CAER-Net with W&B
+# Yang et al. CCIM (causal intervention)
+./bin/train.sh --config configs/yang_ccim.yaml
 
-```bash
-./bin/train.sh
-```
+# Le et al. GLAMOR-Net (global-local attention)
+./bin/train.sh --config configs/glamor_net.yaml
 
-This will automatically log to Weights & Biases. The API key is already configured in the script.
+# Dengan augmentasi
+./bin/train.sh --config configs/zhou_cross_attention.yaml --augment
 
-#### Training Options
-
-```bash
 # Custom run name
-./bin/train.sh --run-name "caers_resnet18_baseline"
+./bin/train.sh --config configs/caernet.yaml --run-name "caernet_baseline"
 
-# Resume from checkpoint
-./bin/train.sh --resume checkpoints/caers/best_model.pt
-
-# Offline mode (no W&B sync)
-./bin/train.sh --offline
-
-# Custom config
-./bin/train.sh --config configs/my_config.yaml
-```
-
-Or manually with Python:
-
-```bash
-python scripts/train_caers.py \
-  --config configs/caers_data.yaml \
-  --wandb-project caers-emotion-recognition \
-  --wandb-run-name "my_experiment"
-```
-
-#### W&B Configuration
-
-The default W&B configuration is in `bin/train.sh`:
-- **Project**: `caers-emotion-recognition`
-- **API Key**: Configured in script
-
-To use your own W&B account, edit `bin/train.sh` or set environment variables:
-
-```bash
-export WANDB_API_KEY="your_key_here"
-export WANDB_PROJECT="your_project"
+# Resume dari checkpoint
+./bin/train.sh --config configs/caernet.yaml --resume checkpoints/caernet/best_model.pt
 ```
 
 ### 4. Evaluate
 
 ```bash
-./bin/evaluate.sh
+# Auto-detect checkpoint berdasarkan method di config
+./bin/evaluate.sh --config configs/caernet.yaml
+
+# Evaluasi split val
+./bin/evaluate.sh --config configs/zhou_cross_attention.yaml --split val
+
+# Yang et al. CCIM
+./bin/evaluate.sh --config configs/yang_ccim.yaml
+
+# Le et al. GLAMOR-Net
+./bin/evaluate.sh --config configs/glamor_net.yaml
+
+# Custom checkpoint
+./bin/evaluate.sh --config configs/caernet.yaml --checkpoint checkpoints/caernet/best_model.pt
 ```
 
-Options:
+## Ablation Studies (CAER-Net)
 
-```bash
-# Evaluate on validation split
-./bin/evaluate.sh --split val
-
-# Use custom checkpoint
-./bin/evaluate.sh --checkpoint checkpoints/caers/best_model.pt
-```
-
-Or manually:
-
-```bash
-python scripts/evaluate_caers.py \
-  --config configs/caers_data.yaml \
-  --checkpoint checkpoints/caers/best_model.pt \
-  --split test
-```
-
-This reports:
-- Top-1 and Top-5 accuracy
-- Overall accuracy
-- Per-class accuracy
-
-## Ablation Studies
-
-Change `train.stream_mode` in `configs/caers_data.yaml`:
+Ubah `train.stream_mode` di `configs/caernet.yaml`:
 
 ```yaml
 train:
-  stream_mode: face     # Face-only baseline
-  # stream_mode: context  # Context-only baseline
-  # stream_mode: multimodal  # Full two-stream (default)
+  stream_mode: face      # Face-only baseline
+  # stream_mode: context # Context-only baseline
+  # stream_mode: multimodal # Full two-stream (default)
 ```
 
-Then run `./bin/train.sh` again.
+## Monitoring dengan W&B
 
-## Project Structure
+Training & evaluation otomatis log ke Weights & Biases:
+- Metrics per epoch
+- Model checkpoints sebagai artifact
+- Per-class accuracy tables & charts
 
-```text
-.
-├── bin/                          # Helper bash scripts
-│   ├── setup_uv.sh              # UV environment setup
-│   ├── build_manifest.sh        # Build data manifest
-│   ├── smoke_test.sh            # Data pipeline smoke test
-│   ├── train.sh                 # Training with W&B
-│   └── evaluate.sh              # Evaluation
-├── configs/
-│   └── caers_data.yaml          # Main configuration
-├── scripts/
-│   ├── build_caers_manifest.py  # Manifest builder CLI
-│   ├── smoke_data_pipeline.py   # Smoke test CLI
-│   ├── train_caers.py           # Training CLI
-│   └── evaluate_caers.py        # Evaluation CLI
-├── src/caers_pipeline/
-│   ├── __init__.py
-│   ├── config.py                # Config loader
-│   ├── data_manifest.py         # Manifest generation
-│   ├── dataset.py               # PyTorch dataset
-│   ├── engine.py                # Training/eval loops
-│   ├── io_utils.py              # JSON/JSONL utilities
-│   └── model.py                 # CAER-Net model
-├── pyproject.toml               # UV/Python project config
-├── .python-version              # Python version pin
-├── requirements.txt             # Pip requirements fallback
-└── README.md                    # This file
+Set environment variables untuk konfigurasi W&B Anda sendiri:
+```bash
+export WANDB_API_KEY="your_key"
+export WANDB_PROJECT="your_project"
 ```
-
-## Monitoring with W&B
-
-During training, the following are logged automatically:
-- **Metrics**: train/val loss, top-1/top-5 accuracy per epoch
-- **Model**: Gradient histograms, parameter distributions
-- **Artifacts**: Best model checkpoint uploaded to W&B
-- **Config**: All hyperparameters from YAML config
-
-View results at: https://wandb.ai
 
 ## Notes
 
-- Context stream masking supports optional face bounding boxes if `face_bbox` is present in manifest rows.
-- If no face bbox exists, context image equals original image.
-- The adaptive fusion module learns soft weights between face and context features.
-- Pretrained backbones are recommended due to the small size of CAER-S.
-- For reproducibility, seeds are set for Python, NumPy, and PyTorch.
+- Dataset CAER-S harus memiliki struktur `train/` dan `test/` dengan subfolder per kelas.
+- Semua metode menggunakan **two-stream input** (face + context) kecuali ablasi single-stream.
+- Pretrained backbones sangat direkomendasikan karena ukuran CAER-S yang relatif kecil.
+- **Yang CCIM**: Confounder dictionary dibangun otomatis dari training data saat pertama kali training. File akan disimpan di `checkpoints/yang_ccim/confounder_dict.pt` dan bisa digunakan kembali untuk resume/evaluasi.

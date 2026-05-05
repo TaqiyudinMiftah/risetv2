@@ -9,9 +9,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from caers_pipeline.config import load_config
-from caers_pipeline.data_manifest import build_caers_manifest
-from caers_pipeline.io_utils import write_json, write_jsonl
+from config.config import load_config
+from utils.data_manifest import build_caers_manifest
+from utils.io_utils import write_json, write_jsonl
 
 
 def parse_args() -> argparse.Namespace:

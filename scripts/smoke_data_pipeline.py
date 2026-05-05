@@ -11,8 +11,8 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from caers_pipeline.config import load_config
-from caers_pipeline.dataset import CAERSTwoStreamDataset
+from config.config import load_config
+from datasets.caers_dataset import CAERSTwoStreamDataset
 
 
 def parse_args() -> argparse.Namespace:
