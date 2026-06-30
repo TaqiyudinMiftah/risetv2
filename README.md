@@ -28,6 +28,9 @@ Notebook tersebut berisi alur end-to-end:
 .
 ├── CAER_S_CAERNet_Reproduction_ipynb.ipynb  # pipeline utama
 ├── detectors/                               # detector txt/pth cache, bisa di-download ulang notebook
+├── configs/caer_official.json               # config untuk pipeline official ndkhanh360/CAER
+├── run_caer_official.py                     # wrapper train/test pipeline official
+├── third_party/CAER/                        # upstream CAER repo sebagai submodule
 ├── paper/                                   # referensi paper
 ├── CAER-S/                                  # dataset lokal, di-ignore git
 ├── requirements.txt
@@ -131,3 +134,45 @@ BATCH_SIZE = 64
 ```
 
 Jika memori GPU tidak cukup, turunkan `PER_GPU_BATCH_SIZE` di cell dataloader.
+
+## Pipeline Official ndkhanh360/CAER
+
+Pipeline alternatif dari `https://github.com/ndkhanh360/CAER` tersedia sebagai submodule di `third_party/CAER/`. Setelah clone repo ini di mesin baru, ambil submodule dengan:
+
+```bash
+git submodule update --init --recursive
+```
+
+Siapkan symlink data untuk format upstream:
+
+```bash
+python run_caer_official.py prepare
+```
+
+Training dual-GPU dengan 2x RTX 3060:
+
+```bash
+python run_caer_official.py train --device 0,1 --n-gpu 2
+```
+
+Untuk smoke test cepat:
+
+```bash
+python run_caer_official.py train --device 0 --n-gpu 1 --epochs 1 --batch-size 8 --no-tensorboard
+```
+
+Checkpoint dan TensorBoard log disimpan oleh kode upstream di:
+
+```text
+third_party/CAER/CAER/official_runs/models/CAER_S_Official_CAERNet/<run_id>/
+third_party/CAER/CAER/official_runs/log/CAER_S_Official_CAERNet/<run_id>/
+```
+
+Evaluasi checkpoint official:
+
+```bash
+python run_caer_official.py test \
+  --device 0 \
+  --n-gpu 1 \
+  --resume third_party/CAER/CAER/official_runs/models/CAER_S_Official_CAERNet/<run_id>/model_best.pth
+```

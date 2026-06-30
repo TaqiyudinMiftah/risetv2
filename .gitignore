@@ -21,6 +21,8 @@ caers_manifest.jsonl
 
 CAER-S/
 detectors/
+third_party/CAER/CAER/data/
+third_party/CAER/CAER/official_runs/
 
 # Notebook exports
 CAER_S_CAERNet_Reproduction_ipynb.py

@@ -1,0 +1,4 @@
+[submodule "third_party/CAER"]
+	path = third_party/CAER
+	url = https://github.com/ndkhanh360/CAER.git
+	ignore = untracked
