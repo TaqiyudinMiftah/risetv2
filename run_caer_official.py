@@ -23,6 +23,7 @@ GENERATED_CONFIG_DIR = CAER_CODE_DIR / "official_runs" / "generated_configs"
 
 CLASS_DIRS = {
     "Anger": "Angry",
+    "Angry": "Angry",
     "Disgust": "Disgust",
     "Fear": "Fear",
     "Happy": "Happy",
