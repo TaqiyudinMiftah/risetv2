@@ -23,7 +23,7 @@
     "val_loader": {
         "type": "CAERSDataLoader",
         "args": {
-            "root": "data/CAER-S/train",
+            "root": "data/CAER-S/test",
             "detect_file": "data/val.txt",
             "train": false,
             "batch_size": 64,
