@@ -4,10 +4,15 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.ipynb_checkpoints/
+*.egg-info/
 
 # Data/artifacts
 artifacts/
 outputs/
+checkpoints/
+wandb/
+caers_manifest.jsonl
 *.pt
 *.pth
 
@@ -15,4 +20,7 @@ outputs/
 .vscode/
 
 CAER-S/
+detectors/
 
+# Notebook exports
+CAER_S_CAERNet_Reproduction_ipynb.py

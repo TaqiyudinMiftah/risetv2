@@ -1,177 +1,106 @@
-# Multi-Method Emotion Recognition Pipeline (CAER-S)
+# CAER-Net Reproduction on CAER-S
 
-Repository ini berisi pipeline modular untuk emosi recognition pada dataset **CAER-S**, dengan dukungan untuk **banyak metode** dari berbagai paper.
+Repository ini difokuskan untuk reproduksi ulang paper:
 
-## Metode yang Tersedia
+**Context-Aware Emotion Recognition Networks**  
+Lee et al., ICCV 2019
 
-| Method | Paper | Status |
-|--------|-------|--------|
-| `caernet` | Lee et al., "Context-Aware Emotion Recognition Networks", ICCV 2019 | Ready |
-| `zhou_cross_attention` | Zhou et al., "Emotion Recognition from Large-Scale Video Clips with Cross-Attention and Hybrid Feature Weighting Neural Networks", IJERPH 2023 | Ready |
-| `yang_ccim` | Yang et al., "Context De-Confounded Emotion Recognition", CVPR 2023 | Ready |
-| `glamor_net` | Le et al., "Global-Local Attention for Emotion Recognition", Neural Computing and Applications, 2022 | Ready |
+Pipeline utama ada di:
 
-## Struktur Repository (Multi-Method)
+```text
+CAER_S_CAERNet_Reproduction_ipynb.ipynb
+```
+
+Notebook tersebut berisi alur end-to-end:
+
+1. setup environment dan seed,
+2. pencarian root dataset CAER-S,
+3. download/cache detector files ke `detectors/`,
+4. build manifest `caers_manifest.jsonl`,
+5. dataset two-stream face/context,
+6. implementasi CAER-Net-S,
+7. training,
+8. evaluasi test set dan confusion matrix.
+
+## Struktur Saat Ini
 
 ```text
 .
-├── bin/                          # Helper bash scripts
-│   ├── setup_uv.sh              # UV environment setup
-│   ├── build_manifest.sh        # Build data manifest
-│   ├── smoke_test.sh            # Data pipeline smoke test
-│   ├── train.sh                 # Unified training script
-│   └── evaluate.sh              # Unified evaluation script
-├── configs/
-│   ├── caernet.yaml             # CAER-Net config
-│   ├── zhou_cross_attention.yaml # Zhou et al. config
-│   ├── yang_ccim.yaml           # Yang et al. (CCIM) config
-│   └── glamor_net.yaml          # Le et al. (GLAMOR-Net) config
-├── scripts/
-│   ├── build_caers_manifest.py  # Manifest builder CLI
-│   ├── smoke_data_pipeline.py   # Smoke test CLI
-│   ├── train.py                 # Unified training CLI (multi-method)
-│   └── evaluate.py              # Unified evaluation CLI (multi-method)
-├── src/
-│   ├── config/                  # Configuration loader
-│   │   └── config.py
-│   ├── datasets/                # Shared dataset utilities
-│   │   ├── caers_dataset.py
-│   │   └── transforms.py
-│   ├── engine/                  # Shared training/eval engine
-│   │   ├── metrics.py
-│   │   ├── trainer.py
-│   │   └── evaluator.py
-│   ├── models/                  # All methods/models
-│   │   ├── common.py            # Shared encoder builder
-│   │   ├── caernet/             # CAER-Net method
-│   │   │   └── model.py
-│   │   ├── zhou_cross_attention/ # Zhou et al. method
-│   │   │   └── model.py
-│   │   ├── yang_ccim/           # Yang et al. (CCIM) method
-│   │   │   ├── model.py
-│   │   │   └── confounder_builder.py
-│   │   └── glamor_net/          # Le et al. (GLAMOR-Net) method
-│   │       └── model.py
-│   └── utils/
-│       ├── io_utils.py
-│       └── data_manifest.py
-├── pyproject.toml
+├── CAER_S_CAERNet_Reproduction_ipynb.ipynb  # pipeline utama
+├── detectors/                               # detector txt/pth cache, bisa di-download ulang notebook
+├── paper/                                   # referensi paper
+├── CAER-S/                                  # dataset lokal, di-ignore git
 ├── requirements.txt
+├── pyproject.toml
 └── README.md
 ```
 
-## Menambahkan Metode Baru
-
-Untuk menambahkan metode dari paper baru:
-
-1. **Buat direktori model**: `src/models/<method_name>/`
-2. **Implementasikan model**: Buat `model.py` dengan class yang mengimplementasikan `forward(face_image, context_image) -> dict`
-3. **Update config loader**: Tambahkan method-specific config di `src/config/config.py`
-4. **Buat config file**: `configs/<method_name>.yaml`
-5. **Register di scripts**: Update `build_model()` di `scripts/train.py` dan `scripts/evaluate.py`
-
-Contoh minimal model:
-```python
-class MyNewModel(nn.Module):
-    def forward(self, face_image, context_image):
-        # ... your architecture ...
-        return {"logits": logits}
-```
+Folder lama seperti `src/`, `scripts/`, `configs/`, `bin/`, `artifacts/`, `wandb/`, dan checkpoint lama sudah tidak menjadi bagian pipeline utama.
 
 ## Setup
 
-```bash
-./bin/setup_uv.sh
-# atau manual: uv venv --python 3.12 && source .venv/bin/activate && uv pip install -e ".[dev]"
-```
-
-## Pipeline Steps
-
-### 1. Build Manifest + Diagnostics
+Rekomendasi dengan `uv`:
 
 ```bash
-./bin/build_manifest.sh
-# atau dengan config tertentu:
-./bin/build_manifest.sh --config configs/zhou_cross_attention.yaml
+uv venv --python 3.12
+uv pip install -r requirements.txt
+uv run python -m ipykernel install --user --name caer-net-reproduction --display-name "CAER-Net Reproduction"
 ```
 
-### 2. Smoke Test Data Pipeline
+Atau dengan `pip` jika environment Anda menyediakannya:
 
 ```bash
-./bin/smoke_test.sh
+python -m pip install -r requirements.txt
 ```
 
-### 3. Train
+## Menjalankan Reproduction
+
+1. Pastikan dataset CAER-S tersedia secara lokal.
+2. Buka `CAER_S_CAERNet_Reproduction_ipynb.ipynb`.
+3. Pilih kernel `CAER-Net Reproduction`.
+4. Jalankan cell dari atas ke bawah.
+5. Notebook akan membuat ulang file runtime seperti:
+
+```text
+caers_manifest.jsonl
+checkpoints/<run_name>/config.json
+checkpoints/<run_name>/best.pt
+checkpoints/<run_name>/last.pt
+checkpoints/<run_name>/history.json
+checkpoints/<run_name>/history.csv
+checkpoints/<run_name>/metrics.json
+checkpoints/<run_name>/test_predictions.csv
+checkpoints/<run_name>/confusion_matrix.png
+```
+
+File runtime tersebut di-ignore agar repo tetap bersih.
+
+## Experiment Tracking dan Resume
+
+Notebook memiliki satu `CFG` dictionary untuk mengatur hyperparameter, W&B, AMP, early stopping, gradient clipping, dan resume. Default W&B adalah `offline` jika `WANDB_API_KEY` tidak tersedia, sehingga training tetap bisa berjalan tanpa login.
+
+Untuk W&B online:
 
 ```bash
-# CAER-Net
-./bin/train.sh --config configs/caernet.yaml
-
-# Zhou et al. Cross-Attention
-./bin/train.sh --config configs/zhou_cross_attention.yaml
-
-# Yang et al. CCIM (causal intervention)
-./bin/train.sh --config configs/yang_ccim.yaml
-
-# Le et al. GLAMOR-Net (global-local attention)
-./bin/train.sh --config configs/glamor_net.yaml
-
-# Dengan augmentasi
-./bin/train.sh --config configs/zhou_cross_attention.yaml --augment
-
-# Custom run name
-./bin/train.sh --config configs/caernet.yaml --run-name "caernet_baseline"
-
-# Resume dari checkpoint
-./bin/train.sh --config configs/caernet.yaml --resume checkpoints/caernet/best_model.pt
+export WANDB_API_KEY=...
+export WANDB_MODE=online
 ```
 
-### 4. Evaluate
+Untuk resume training, isi `CFG["resume_from"]` dengan checkpoint `last.pt`, misalnya:
 
-```bash
-# Auto-detect checkpoint berdasarkan method di config
-./bin/evaluate.sh --config configs/caernet.yaml
-
-# Evaluasi split val
-./bin/evaluate.sh --config configs/zhou_cross_attention.yaml --split val
-
-# Yang et al. CCIM
-./bin/evaluate.sh --config configs/yang_ccim.yaml
-
-# Le et al. GLAMOR-Net
-./bin/evaluate.sh --config configs/glamor_net.yaml
-
-# Custom checkpoint
-./bin/evaluate.sh --config configs/caernet.yaml --checkpoint checkpoints/caernet/best_model.pt
+```python
+CFG["resume_from"] = "checkpoints/<run_name>/last.pt"
 ```
 
-## Ablation Studies (CAER-Net)
+## Dual GPU
 
-Ubah `train.stream_mode` di `configs/caernet.yaml`:
+Notebook otomatis memakai semua GPU CUDA yang terdeteksi melalui `torch.nn.DataParallel`.
+Pada mesin dengan 2x RTX 3060, konfigurasi default menjadi:
 
-```yaml
-train:
-  stream_mode: face      # Face-only baseline
-  # stream_mode: context # Context-only baseline
-  # stream_mode: multimodal # Full two-stream (default)
+```text
+GPU_IDS = [0, 1]
+PER_GPU_BATCH_SIZE = 32
+BATCH_SIZE = 64
 ```
 
-## Monitoring dengan W&B
-
-Training & evaluation otomatis log ke Weights & Biases:
-- Metrics per epoch
-- Model checkpoints sebagai artifact
-- Per-class accuracy tables & charts
-
-Set environment variables untuk konfigurasi W&B Anda sendiri:
-```bash
-export WANDB_API_KEY="your_key"
-export WANDB_PROJECT="your_project"
-```
-
-## Notes
-
-- Dataset CAER-S harus memiliki struktur `train/` dan `test/` dengan subfolder per kelas.
-- Semua metode menggunakan **two-stream input** (face + context) kecuali ablasi single-stream.
-- Pretrained backbones sangat direkomendasikan karena ukuran CAER-S yang relatif kecil.
-- **Yang CCIM**: Confounder dictionary dibangun otomatis dari training data saat pertama kali training. File akan disimpan di `checkpoints/yang_ccim/confounder_dict.pt` dan bisa digunakan kembali untuk resume/evaluasi.
+Jika memori GPU tidak cukup, turunkan `PER_GPU_BATCH_SIZE` di cell dataloader.
