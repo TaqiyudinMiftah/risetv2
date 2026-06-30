@@ -68,6 +68,7 @@ checkpoints/<run_name>/best.pt
 checkpoints/<run_name>/last.pt
 checkpoints/<run_name>/history.json
 checkpoints/<run_name>/history.csv
+checkpoints/<run_name>/train.log
 checkpoints/<run_name>/metrics.json
 checkpoints/<run_name>/test_predictions.csv
 checkpoints/<run_name>/confusion_matrix.png
