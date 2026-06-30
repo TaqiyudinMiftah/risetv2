@@ -89,10 +89,16 @@ Jika memakai checkpoint lama di root `checkpoints/best_caernet_s.pt`, cukup jala
 python evaluate_test.py
 ```
 
-Output evaluasi disimpan ke `eval_test/` di folder checkpoint, termasuk `metrics.json`, `test_predictions.csv`, dan `confusion_matrix.png`. Untuk smoke test cepat:
+Output evaluasi disimpan ke `eval_test/` di folder checkpoint, termasuk `eval.log`, `metrics.json`, `test_predictions.csv`, dan `confusion_matrix.png`. Untuk smoke test cepat:
 
 ```bash
 python evaluate_test.py --max-samples 64
+```
+
+Untuk menentukan lokasi log sendiri:
+
+```bash
+python evaluate_test.py --log-file outputs/eval.log
 ```
 
 ## Experiment Tracking dan Resume

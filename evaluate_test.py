@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,22 @@ from tqdm import tqdm
 
 
 CLASS_NAMES = ["Anger", "Disgust", "Fear", "Happy", "Neutral", "Sad", "Surprise"]
+LOGGER = logging.getLogger("evaluate_test")
+
+
+def setup_logging(log_file: Path) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    LOGGER.handlers.clear()
+    LOGGER.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    LOGGER.addHandler(stream_handler)
+
+    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    LOGGER.addHandler(file_handler)
 
 
 def apply_face_mask(image: Image.Image, bbox: list[int], fill: tuple[int, int, int] = (0, 0, 0)) -> Image.Image:
@@ -212,7 +229,7 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device, use_amp
     return {"loss": total_loss / total, "labels": y_true, "preds": y_pred, "image_paths": image_paths}
 
 
-def write_outputs(metrics: dict[str, Any], output_dir: Path) -> None:
+def write_outputs(metrics: dict[str, Any], output_dir: Path, checkpoint_path: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     labels = metrics["labels"]
     preds = metrics["preds"]
@@ -221,6 +238,7 @@ def write_outputs(metrics: dict[str, Any], output_dir: Path) -> None:
         labels, preds, labels=list(range(len(CLASS_NAMES))), zero_division=0
     )
     metrics_out = {
+        "checkpoint": str(checkpoint_path),
         "test_loss": float(metrics["loss"]),
         "test_acc": float(accuracy_score(labels, preds)),
         "macro_f1": float(f1_score(labels, preds, average="macro")),
@@ -252,7 +270,7 @@ def write_outputs(metrics: dict[str, Any], output_dir: Path) -> None:
                 }
             )
 
-    cm = confusion_matrix(labels, preds)
+    cm = confusion_matrix(labels, preds, labels=list(range(len(CLASS_NAMES))))
     fig, ax = plt.subplots(figsize=(10, 8))
     ConfusionMatrixDisplay(cm, display_labels=CLASS_NAMES).plot(ax=ax, xticks_rotation=45, cmap="Blues", colorbar=False)
     plt.title("CAER-S CAER-Net Test Confusion Matrix")
@@ -260,9 +278,19 @@ def write_outputs(metrics: dict[str, Any], output_dir: Path) -> None:
     plt.savefig(output_dir / "confusion_matrix.png", dpi=200)
     plt.close(fig)
 
-    print(json.dumps(metrics_out, indent=2))
-    print(classification_report(labels, preds, target_names=CLASS_NAMES, digits=4, zero_division=0))
-    print(f"Saved evaluation outputs to: {output_dir}")
+    report = classification_report(
+        labels,
+        preds,
+        labels=list(range(len(CLASS_NAMES))),
+        target_names=CLASS_NAMES,
+        digits=4,
+        zero_division=0,
+    )
+    LOGGER.info("Metrics summary:\n%s", json.dumps(metrics_out, indent=2))
+    LOGGER.info("Classification report:\n%s", report)
+    LOGGER.info("Saved metrics: %s", output_dir / "metrics.json")
+    LOGGER.info("Saved predictions: %s", output_dir / "test_predictions.csv")
+    LOGGER.info("Saved confusion matrix: %s", output_dir / "confusion_matrix.png")
 
 
 def parse_args() -> argparse.Namespace:
@@ -271,6 +299,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=Path("caers_manifest.jsonl"))
     parser.add_argument("--dataset-root", type=Path, default=Path("CAER-S"))
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--log-file", type=Path, default=None, help="Path for evaluation log. Defaults to output_dir/eval.log.")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
@@ -283,7 +312,17 @@ def main() -> None:
     args = parse_args()
     checkpoint_path = args.checkpoint or default_checkpoint()
     output_dir = args.output_dir or checkpoint_path.parent / "eval_test"
+    log_file = args.log_file or output_dir / "eval.log"
+    setup_logging(log_file)
     device = torch.device(args.device if torch.cuda.is_available() or not args.device.startswith("cuda") else "cpu")
+
+    LOGGER.info("Checkpoint: %s", checkpoint_path)
+    LOGGER.info("Manifest: %s", args.manifest)
+    LOGGER.info("Dataset root: %s", args.dataset_root)
+    LOGGER.info("Output dir: %s", output_dir)
+    LOGGER.info("Log file: %s", log_file)
+    LOGGER.info("Device: %s", device)
+    LOGGER.info("AMP: %s", bool(args.amp and device.type == "cuda"))
 
     face_transform = T.Compose([
         T.Resize((96, 96)),
@@ -306,6 +345,9 @@ def main() -> None:
     )
     if args.max_samples > 0:
         dataset = Subset(dataset, range(min(args.max_samples, len(dataset))))
+        LOGGER.info("Using max_samples=%s for smoke evaluation.", len(dataset))
+    else:
+        LOGGER.info("Evaluating full test split with %s samples.", len(dataset))
 
     loader = DataLoader(
         dataset,
@@ -316,7 +358,8 @@ def main() -> None:
     )
     model = load_model(checkpoint_path, device)
     metrics = evaluate(model, loader, device, use_amp=bool(args.amp and device.type == "cuda"))
-    write_outputs(metrics, output_dir)
+    write_outputs(metrics, output_dir, checkpoint_path)
+    LOGGER.info("Evaluation complete.")
 
 
 if __name__ == "__main__":
