@@ -75,6 +75,26 @@ checkpoints/<run_name>/confusion_matrix.png
 
 File runtime tersebut di-ignore agar repo tetap bersih.
 
+## Evaluasi Test Set
+
+Untuk mengevaluasi checkpoint tanpa membuka notebook:
+
+```bash
+python evaluate_test.py --checkpoint checkpoints/<run_name>/best.pt
+```
+
+Jika memakai checkpoint lama di root `checkpoints/best_caernet_s.pt`, cukup jalankan:
+
+```bash
+python evaluate_test.py
+```
+
+Output evaluasi disimpan ke `eval_test/` di folder checkpoint, termasuk `metrics.json`, `test_predictions.csv`, dan `confusion_matrix.png`. Untuk smoke test cepat:
+
+```bash
+python evaluate_test.py --max-samples 64
+```
+
 ## Experiment Tracking dan Resume
 
 Notebook memiliki satu `CFG` dictionary untuk mengatur hyperparameter, W&B, AMP, early stopping, gradient clipping, dan resume. Default W&B adalah `offline` jika `WANDB_API_KEY` tidak tersedia, sehingga training tetap bisa berjalan tanpa login.
