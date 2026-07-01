@@ -114,9 +114,15 @@ def _run_official(command: list[str], device: str | None) -> None:
     env = os.environ.copy()
     if device:
         env["CUDA_VISIBLE_DEVICES"] = device
+    env.pop("TORCH_FORCE_WEIGHTS_ONLY_LOAD", None)
+    env.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
 
     print("Running:", " ".join(command))
     subprocess.run(command, cwd=CAER_CODE_DIR, env=env, check=True)
+
+
+def _resolve_cli_path(path: Path) -> str:
+    return str(path.expanduser().resolve())
 
 
 def train(args: argparse.Namespace) -> None:
@@ -124,7 +130,7 @@ def train(args: argparse.Namespace) -> None:
     run_config = _write_run_config(args)
     command = [sys.executable, "train.py", "--config", str(run_config)]
     if args.resume:
-        command.extend(["--resume", str(args.resume)])
+        command.extend(["--resume", _resolve_cli_path(args.resume)])
     if args.device:
         command.extend(["--device", args.device])
     _run_official(command, args.device)
@@ -141,7 +147,7 @@ def test(args: argparse.Namespace) -> None:
         "--config",
         str(run_config),
         "--resume",
-        str(args.resume),
+        _resolve_cli_path(args.resume),
     ]
     if args.device:
         command.extend(["--device", args.device])
