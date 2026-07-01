@@ -155,6 +155,17 @@ Training dual-GPU dengan 2x RTX 3060:
 python run_caer_official.py train --device 0,1 --n-gpu 2
 ```
 
+Config default `configs/caer_official.json` mengikuti checkpoint pretrained upstream:
+
+```text
+optimizer = SGD(lr=0.01, momentum=0.9, nesterov=True)
+batch_size = 128
+lr_scheduler = StepLR(step_size=15, gamma=0.5)
+epochs = 150
+```
+
+Untuk eksperimen bersih, mulai dari scratch dengan command di atas. Jangan resume dari checkpoint run Adam lama ketika membandingkan dengan baseline official.
+
 Untuk smoke test cepat:
 
 ```bash
