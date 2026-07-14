@@ -6,13 +6,23 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import run_caer_official
 from run_caer_upstream_train import load_config
 
 
 class OfficialExperimentLauncherTests(unittest.TestCase):
+    def test_git_dirty_ignores_runtime_registry_only(self) -> None:
+        clean_result = Mock(stdout=" M experiments/registry.csv\n")
+        dirty_result = Mock(
+            stdout=" M experiments/registry.csv\n M run_caer_official.py\n"
+        )
+        with patch.object(run_caer_official.subprocess, "run", return_value=clean_result):
+            self.assertFalse(run_caer_official._git_dirty())
+        with patch.object(run_caer_official.subprocess, "run", return_value=dirty_result):
+            self.assertTrue(run_caer_official._git_dirty())
+
     def test_generated_config_records_seed_and_input_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

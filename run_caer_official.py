@@ -139,7 +139,12 @@ def _git_dirty() -> bool:
         capture_output=True,
         text=True,
     )
-    return bool(result.stdout.strip())
+    ignored_runtime_paths = {"experiments/registry.csv"}
+    for line in result.stdout.splitlines():
+        changed_path = line[3:].split(" -> ")[-1]
+        if changed_path not in ignored_runtime_paths:
+            return True
+    return False
 
 
 def _make_run_id(seed: int) -> str:
@@ -348,7 +353,28 @@ def _initial_metadata(
     }
 
 
-def _best_checkpoint_summary(config: dict[str, Any], run_id: str) -> tuple[Path, float | None]:
+def _load_checkpoint_summary(checkpoint: Path) -> dict[str, Any]:
+    """Load metadata from an upstream checkpoint without depending on caller cwd."""
+    upstream_path = str(CAER_CODE_DIR)
+    added_to_path = upstream_path not in sys.path
+    if added_to_path:
+        sys.path.insert(0, upstream_path)
+    try:
+        import torch
+
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    finally:
+        if added_to_path:
+            sys.path.remove(upstream_path)
+
+    monitor_best = payload.get("monitor_best")
+    return {
+        "best_epoch": int(payload["epoch"]),
+        "monitor_best": float(monitor_best) if monitor_best is not None else None,
+    }
+
+
+def _best_checkpoint_summary(config: dict[str, Any], run_id: str) -> tuple[Path, dict[str, Any] | None]:
     checkpoint = (
         CAER_CODE_DIR
         / config["trainer"]["save_dir"]
@@ -359,12 +385,21 @@ def _best_checkpoint_summary(config: dict[str, Any], run_id: str) -> tuple[Path,
     )
     if not checkpoint.is_file():
         return checkpoint, None
+    return checkpoint, _load_checkpoint_summary(checkpoint)
 
-    import torch
 
-    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    monitor_best = payload.get("monitor_best")
-    return checkpoint, float(monitor_best) if monitor_best is not None else None
+def _run_finished_at(config: dict[str, Any], run_id: str) -> str:
+    info_log = (
+        CAER_CODE_DIR
+        / config["trainer"]["save_dir"]
+        / "log"
+        / config["name"]
+        / run_id
+        / "info.log"
+    )
+    if info_log.is_file():
+        return datetime.fromtimestamp(info_log.stat().st_mtime, UTC).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _run_official(command: list[str], device: str | None) -> None:
@@ -441,7 +476,7 @@ def train(args: argparse.Namespace) -> None:
         raise
 
     config = _load_config(run_config)
-    checkpoint, val_accuracy = _best_checkpoint_summary(config, run_id)
+    checkpoint, checkpoint_summary = _best_checkpoint_summary(config, run_id)
     if not checkpoint.is_file():
         metadata["status"] = "failed_artifact"
         metadata["error"] = f"Training finished without best checkpoint: {checkpoint}"
@@ -451,14 +486,91 @@ def train(args: argparse.Namespace) -> None:
         raise RuntimeError(metadata["error"])
     metadata["status"] = "completed"
     metadata["checkpoint"] = str(checkpoint.relative_to(REPO_ROOT))
-    metadata["checkpoint_sha256"] = _sha256(checkpoint) if checkpoint.is_file() else None
-    metadata["val_accuracy"] = val_accuracy
-    metadata["finished_at_utc"] = datetime.now(UTC).isoformat(timespec="seconds")
+    metadata["checkpoint_sha256"] = _sha256(checkpoint)
+    metadata["best_epoch"] = checkpoint_summary["best_epoch"]
+    metadata["val_accuracy"] = checkpoint_summary["monitor_best"]
+    metadata["finished_at_utc"] = _run_finished_at(config, run_id)
     _write_metadata(metadata)
     _update_registry(
         metadata,
         checkpoint=metadata["checkpoint"],
-        val_accuracy=val_accuracy,
+        val_accuracy=metadata["val_accuracy"],
+    )
+
+
+def reconcile(args: argparse.Namespace) -> None:
+    metadata_path = RUN_METADATA_ROOT / args.run_id / "run_metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
+    metadata = _load_config(metadata_path)
+    run_config = REPO_ROOT / metadata["generated_config"]
+    if not run_config.is_file():
+        raise FileNotFoundError(f"Generated run config not found: {run_config}")
+    config = _load_config(run_config)
+    checkpoint, checkpoint_summary = _best_checkpoint_summary(config, args.run_id)
+
+    metadata["finished_at_utc"] = _run_finished_at(config, args.run_id)
+    metadata["reconciled_at_utc"] = datetime.now(UTC).isoformat(timespec="seconds")
+    if checkpoint_summary is None:
+        metadata["status"] = "failed_incomplete"
+        metadata["error"] = f"Run ended without a best checkpoint: {checkpoint}"
+        metadata["notes"] = "Incomplete upstream-community run; no checkpoint was produced."
+        _write_metadata(metadata)
+        _update_registry(metadata)
+        print(json.dumps({"run_id": args.run_id, "status": metadata["status"]}, indent=2))
+        return
+
+    metadata.pop("error", None)
+    metadata["status"] = "completed"
+    metadata["checkpoint"] = str(checkpoint.relative_to(REPO_ROOT))
+    metadata["checkpoint_sha256"] = _sha256(checkpoint)
+    metadata["best_epoch"] = checkpoint_summary["best_epoch"]
+    metadata["val_accuracy"] = checkpoint_summary["monitor_best"]
+    metadata["notes"] = (
+        "Exploratory upstream-community run completed; test split was not evaluated. "
+        "Status reconciled after the post-training summary failure."
+    )
+
+    registry_updates: dict[str, Any] = {
+        "checkpoint": metadata["checkpoint"],
+        "val_accuracy": metadata["val_accuracy"],
+    }
+    if args.validation_metrics is not None:
+        metrics_path = args.validation_metrics.expanduser().resolve()
+        metrics = _load_config(metrics_path)
+        if metrics.get("split") != "val":
+            raise ValueError(f"Expected validation metrics, got split={metrics.get('split')!r}")
+        if metrics.get("checkpoint_sha256") != metadata["checkpoint_sha256"]:
+            raise ValueError("Validation metrics checkpoint hash does not match run checkpoint.")
+        metadata["validation_metrics"] = str(metrics_path.relative_to(REPO_ROOT))
+        metadata["validation_metrics_sha256"] = _sha256(metrics_path)
+        metadata["val_accuracy"] = float(metrics["accuracy"])
+        metadata["val_macro_f1"] = float(metrics["macro_f1"])
+        metadata["val_weighted_f1"] = float(metrics["weighted_f1"])
+        metadata["neutral_f1"] = float(metrics["per_class"]["Neutral"]["f1"])
+        metadata["params"] = int(metrics["params"])
+        registry_updates.update(
+            {
+                "val_accuracy": metadata["val_accuracy"],
+                "val_macro_f1": metadata["val_macro_f1"],
+                "neutral_f1": metadata["neutral_f1"],
+                "params": metadata["params"],
+            }
+        )
+
+    _write_metadata(metadata)
+    _update_registry(metadata, **registry_updates)
+    print(
+        json.dumps(
+            {
+                "run_id": args.run_id,
+                "status": metadata["status"],
+                "best_epoch": metadata["best_epoch"],
+                "val_accuracy": metadata["val_accuracy"],
+                "val_macro_f1": metadata.get("val_macro_f1"),
+            },
+            indent=2,
+        )
     )
 
 
@@ -531,6 +643,14 @@ def build_parser() -> argparse.ArgumentParser:
     test_parser.add_argument("--epochs", type=int, default=None)
     test_parser.add_argument("--resume", type=Path, required=True)
     test_parser.set_defaults(func=test)
+
+    reconcile_parser = subparsers.add_parser(
+        "reconcile",
+        help="Finalize registry metadata for a completed or interrupted run.",
+    )
+    reconcile_parser.add_argument("--run-id", required=True)
+    reconcile_parser.add_argument("--validation-metrics", type=Path, default=None)
+    reconcile_parser.set_defaults(func=reconcile)
 
     return parser
 

@@ -198,6 +198,24 @@ python run_caer_official.py train \
   --seed 42 --device 0,1 --n-gpu 2 --dry-run
 ```
 
+Evaluasi checkpoint pada validation saja, termasuk macro F1, per-class F1, NLL, ECE, predictions, dan confusion matrix:
+
+```bash
+python evaluate_caer_official.py \
+  --checkpoint third_party/CAER/CAER/official_runs/models/<experiment_name>/<run_id>/model_best.pth \
+  --split val --device cuda:0
+```
+
+Jika training selesai tetapi status registry belum terbarui, rekonsiliasi tanpa mengulang training:
+
+```bash
+python run_caer_official.py reconcile \
+  --run-id <run_id> \
+  --validation-metrics artifacts/experiments/<run_id>/val_evaluation/metrics.json
+```
+
+Evaluator mengunci test secara default. Flag `--allow-test` hanya digunakan setelah model dan protokol final dibekukan.
+
 Checkpoint dan TensorBoard log disimpan oleh kode upstream di:
 
 ```text

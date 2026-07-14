@@ -31,19 +31,46 @@ The source submodule remains unmodified. `run_caer_upstream_train.py` resets the
 
 ## Verification
 
-- 10 unit tests passed.
+- 16 unit tests passed after adding checkpoint/reconciliation and evaluation coverage.
 - Dry-run generated a complete command and metadata record.
 - A real CPU batch produced face `[2, 3, 96, 96]`, context `[2, 3, 112, 112]`, and logits `[2, 7]`.
-- No test images or test metrics were accessed by the training launcher.
+- Fresh-process validation evaluated all 6,965 samples and matched the frozen detector hash.
+- No test images or test metrics were accessed.
 
-## Compute Status
+## Completed Run
 
-Run `caernet__upstream_community__seed42__20260714_042734` stopped at GPU preflight with status `blocked_compute`. GPU 0 had 1929 MiB free and GPU 1 had 2020 MiB free because VLLM occupied both cards; the required minimum is 6000 MiB per GPU. No training step ran.
+Run ID: `caernet__upstream_community__seed42__20260714_142807`
 
-Retry after the GPUs are released:
+Training selected epoch 16 and stopped at epoch 29 after 12 epochs without validation improvement. The checkpoint was evaluated independently using sample-weighted metrics:
 
-```bash
-python run_caer_official.py train \
-  --config configs/experiments/caernet_upstream_content_disjoint_exploratory_seed42.json \
-  --seed 42 --device 0,1 --n-gpu 2 --wandb-mode offline
-```
+| Metric | Validation result |
+| --- | ---: |
+| Accuracy | 0.727064 |
+| Macro F1 | 0.729878 |
+| Weighted F1 | 0.731325 |
+| Neutral F1 | 0.540762 |
+| NLL | 0.830470 |
+| ECE, 15 bins | 0.081090 |
+| Parameters | 2,390,028 |
+
+The community trainer reported `0.726956` because it averages per-batch accuracy without weighting the smaller final batch. Controlled results use the independent sample-weighted value above.
+
+## Per-Class Result
+
+| Class | F1 |
+| --- | ---: |
+| Anger | 0.736668 |
+| Disgust | 0.823262 |
+| Fear | 0.918656 |
+| Happy | 0.659277 |
+| Neutral | 0.540762 |
+| Sad | 0.749280 |
+| Surprise | 0.681240 |
+
+Neutral is the weakest class and therefore remains a primary diagnostic target. The final training epoch reached 0.9519 train accuracy but only 0.6103 validation accuracy; this is post-selection overfitting and does not replace the epoch-16 checkpoint.
+
+## Artifact Status
+
+The validation metrics, predictions, classification report, and confusion matrix are under `artifacts/experiments/<run_id>/val_evaluation/` and remain Git-ignored. Registry status is `completed`; run `...142718`, which produced no checkpoint, is marked `failed_incomplete`. The earlier `...042734` attempt remains `blocked_compute` as an audit trail.
+
+This exploratory result is sufficient to freeze the upstream-community protocol for final seeds 42, 43, and 44. Test evaluation remains locked until the final baseline protocol and candidates are declared.
