@@ -1,17 +1,23 @@
 # BASELINE_SCOPE.md
 
-## Required Reproduction
+## Mandatory Full Reproduction
 
-The research must reproduce only the baselines needed to test the hypothesis.
+Run upstream-community CAER-Net and the clean in-repository CAER-Net as separate
+tracks. Reproduce CAER-Net + CCIM as a full method only when its preprocessing,
+training protocol, and intervention can be matched. Otherwise, label it
+`CCIM-inspired` and report the mismatch.
 
-Required:
-- CAER-Net;
+## Mandatory Controlled Baselines
+
+These models test the research hypothesis under one split, backbone, optimizer,
+training budget, checkpoint rule, and evaluator:
+
 - face-only;
 - context-only;
+- simple concatenation and CAER-Net adaptive fusion;
 - unidirectional cross-attention;
 - bidirectional cross-attention;
 - iterative bidirectional cross-attention;
-- CAER-Net + CCIM;
 - raw-feature debiasing;
 - post-interaction debiasing;
 - CD-ICA-Net.
@@ -31,6 +37,10 @@ Optional methods are implemented only after:
 - context diagnostics;
 - core interaction ablations;
 - core debiasing ablations.
+
+An optional paper becomes a full reproduction only when official code and a
+matched CAER-S protocol are available. Otherwise, retain its published number
+in the literature table or implement only a clearly named component baseline.
 
 ## Literature Result Policy
 

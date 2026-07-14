@@ -1,0 +1,82 @@
+{
+    "name": "CAERNet_UpstreamCommunity_ContentDisjoint_Final",
+    "n_gpu": 2,
+    "seed": 42,
+    "research": {
+        "stage": "final",
+        "track": "upstream_community",
+        "protocol": "caer_s_content_disjoint_v1",
+        "training_budget": "caernet_controlled_v1",
+        "selection_metric": "val_accuracy",
+        "test_during_training": false
+    },
+    "arch": {
+        "type": "CAERSNet",
+        "args": {
+            "use_face": true,
+            "use_context": true,
+            "concat": false
+        }
+    },
+    "train_loader": {
+        "type": "CAERSDataLoader",
+        "args": {
+            "root": "data/CAER-S/train",
+            "detect_file": "data/train.txt",
+            "train": true,
+            "batch_size": 128,
+            "shuffle": true,
+            "num_workers": 4
+        }
+    },
+    "val_loader": {
+        "type": "CAERSDataLoader",
+        "args": {
+            "root": "data/CAER-S/test",
+            "detect_file": "data/val.txt",
+            "train": false,
+            "batch_size": 128,
+            "shuffle": false,
+            "num_workers": 4
+        }
+    },
+    "test_loader": {
+        "type": "CAERSDataLoader",
+        "args": {
+            "root": "data/CAER-S/test",
+            "detect_file": "data/test.txt",
+            "train": false,
+            "batch_size": 128,
+            "shuffle": false,
+            "num_workers": 4
+        }
+    },
+    "optimizer": {
+        "type": "SGD",
+        "args": {
+            "lr": 0.01,
+            "momentum": 0.9,
+            "nesterov": true
+        }
+    },
+    "loss": "cross_entropy",
+    "metrics": [
+        "accuracy"
+    ],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 15,
+            "gamma": 0.5
+        }
+    },
+    "trainer": {
+        "epochs": 45,
+        "save_dir": "official_runs",
+        "save_period": 5,
+        "verbosity": 2,
+        "monitor": "max val_accuracy",
+        "early_stop": 12,
+        "tensorboard": true
+    }
+}

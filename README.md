@@ -177,6 +177,34 @@ python run_caer_official.py train \
   --wandb-mode offline
 ```
 
+Hasil eksplorasi dan keputusan scope dirangkum di
+[`reports/research_execution_roadmap.md`](reports/research_execution_roadmap.md).
+Reproduksi penuh difokuskan pada CAER-Net dan CAER-Net + CCIM bila protokolnya
+dapat dicocokkan. Paper lain tetap masuk literature comparison; full reproduction
+GLAMOR-Net, CAHFW-Net, CLEF, DSCT, dan AGCD-Net dikerjakan setelah controlled
+interaction dan debiasing ablation selesai.
+
+Validasi seluruh config final tanpa mengalokasikan training GPU:
+
+```bash
+python run_caer_final_multiseed.py --dry-run
+```
+
+Jalankan final upstream-community baseline untuk seed 42, 43, dan 44 secara
+berurutan:
+
+```bash
+python run_caer_final_multiseed.py \
+  --seeds 42 43 44 \
+  --device 0,1 --n-gpu 2 \
+  --wandb-mode offline
+```
+
+Run final memakai budget yang dibekukan dari eksperimen seed 42: 45 epoch,
+early stopping 12, dan checkpoint selection berdasarkan validation accuracy.
+Seed 42 dijalankan ulang karena run sebelumnya berstatus eksplorasi. Jangan
+menambahkan override hyperparameter pada final multi-seed run.
+
 `--detector-dir` sekarang default ke protokol content-disjoint. Launcher menolak training jika salah satu GPU terpilih memiliki memori bebas kurang dari 6000 MiB, menyimpan hash input dan config di `artifacts/experiments/<run_id>/run_metadata.json`, lalu memperbarui `experiments/registry.csv`. Gunakan `--wandb-mode online` setelah `wandb login`; API key tidak diperlukan untuk mode offline.
 
 Config dasar `configs/caer_official.json` mengikuti checkpoint pretrained upstream:

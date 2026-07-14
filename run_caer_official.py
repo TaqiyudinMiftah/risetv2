@@ -322,6 +322,7 @@ def _initial_metadata(
     command: list[str],
 ) -> dict[str, Any]:
     config = _load_config(run_config)
+    stage = config.get("research", {}).get("stage", "exploratory")
     try:
         frozen_config = str(args.config.expanduser().resolve().relative_to(REPO_ROOT))
     except ValueError:
@@ -332,7 +333,8 @@ def _initial_metadata(
         "model": "CAER-Net",
         "track": "upstream_community",
         "variant": config["experiment"]["variant"],
-        "exploratory": config.get("research", {}).get("stage", "exploratory") == "exploratory",
+        "stage": stage,
+        "exploratory": stage == "exploratory",
         "seed": args.seed,
         "git_sha": config["experiment"]["git_sha"],
         "git_dirty": config["experiment"]["git_dirty"],
@@ -349,7 +351,10 @@ def _initial_metadata(
         "hardware": {"platform": platform.platform(), "gpus": _gpu_inventory()},
         "software": _software_versions(),
         "started_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
-        "notes": "Exploratory upstream-community run; test split is not evaluated during training.",
+        "notes": (
+            f"{stage.capitalize()} upstream-community run; "
+            "test split is not evaluated during training."
+        ),
     }
 
 
@@ -526,8 +531,9 @@ def reconcile(args: argparse.Namespace) -> None:
     metadata["checkpoint_sha256"] = _sha256(checkpoint)
     metadata["best_epoch"] = checkpoint_summary["best_epoch"]
     metadata["val_accuracy"] = checkpoint_summary["monitor_best"]
+    stage = metadata.get("stage", "exploratory")
     metadata["notes"] = (
-        "Exploratory upstream-community run completed; test split was not evaluated. "
+        f"{stage.capitalize()} upstream-community run completed; test split was not evaluated. "
         "Status reconciled after the post-training summary failure."
     )
 
