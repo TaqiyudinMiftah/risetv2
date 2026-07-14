@@ -1,6 +1,6 @@
-# CAER-Net Reproduction on CAER-S
+# CAER-S Research: CAER-Net to CD-ICA-Net
 
-Repository ini difokuskan untuk reproduksi ulang paper:
+Repository ini memakai reproduksi CAER-Net sebagai baseline untuk meneliti iterative bidirectional face-context interaction dan post-interaction debiasing pada CD-ICA-Net. Baseline fondasinya adalah:
 
 **Context-Aware Emotion Recognition Networks**  
 Lee et al., ICCV 2019
@@ -31,14 +31,24 @@ Notebook tersebut berisi alur end-to-end:
 ├── configs/caer_official.json               # config untuk pipeline official ndkhanh360/CAER
 ├── run_caer_official.py                     # wrapper train/test pipeline official
 ├── third_party/CAER/                        # upstream CAER repo sebagai submodule
-├── paper/                                   # referensi paper
+├── agents.d/                                # scope dan protokol eksperimen
+├── paper/                                   # PDF, matrix, notes, dan source snapshots
+├── protocols/                               # definisi split penelitian
+├── reports/                                 # audit dan laporan reproducibility
+├── tests/                                   # unit test audit/protokol
 ├── CAER-S/                                  # dataset lokal, di-ignore git
 ├── requirements.txt
 ├── pyproject.toml
 └── README.md
 ```
 
-Folder lama seperti `src/`, `scripts/`, `configs/`, `bin/`, `artifacts/`, `wandb/`, dan checkpoint lama sudah tidak menjadi bagian pipeline utama.
+Output lokal seperti `artifacts/`, `wandb/`, dataset, dan checkpoint di-ignore. Jangan menghapus source protocol, laporan, atau literature package yang dilacak Git.
+
+## Arah Penelitian
+
+Baca `agents.d/LITERATURE_AND_EXPERIMENT_PLAN.md` sebelum menambah eksperimen. Matrix paper berada di `paper/LITERATURE_MATRIX.md`, inventaris sumber di `paper/SOURCE_INVENTORY.md`, dan hasil audit data di `reports/data_protocol_audit.md`.
+
+Aturan utama: jangan memakai test set untuk tuning, pisahkan hasil paper dari hasil reproduksi, dan gunakan `caer_s_content_disjoint_v1` untuk controlled comparison. GLAMOR-Net, CAHFW-Net, CLEF, DSCT, dan AGCD-Net bersifat opsional sampai baseline interaksi dan debiasing wajib selesai.
 
 ## Setup
 

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is centered on a CAER-Net reproduction workflow for CAER-S. The main pipeline is `CAER_S_CAERNet_Reproduction_ipynb.ipynb`; keep experiment logic there unless a reusable Python module is intentionally introduced. Reference material lives in `paper/`. Detector cache files live in `detectors/`. Runtime outputs such as `caers_manifest.jsonl`, `checkpoints/`, `wandb/`, and `*.egg-info/` are generated artifacts and should not be committed. The local dataset is expected at `CAER-S/` with `train/` and `test/` subfolders.
+This repository develops CD-ICA-Net from a reproducible CAER-Net baseline on CAER-S. `CAER_S_CAERNet_Reproduction_ipynb.ipynb` remains the executable demo; new reusable experiment logic belongs in Python modules with tests. Research rules live in `agents.d/`, literature and frozen source snapshots in `paper/`, detector annotations in `detectors/`, and protocol definitions in `protocols/`. Local datasets, `artifacts/`, `checkpoints/`, `wandb/`, and generated manifests must remain uncommitted.
 
 ## Build, Test, and Development Commands
 
@@ -22,17 +22,28 @@ python -c "import torch, torchvision, pandas, wandb"
 
 To refresh dependency locking after editing `pyproject.toml`, run `uv lock`.
 
+Generate the mandatory content-disjoint protocol and run tests with:
+
+```bash
+python prepare_content_disjoint_split.py
+.venv/bin/python -m unittest discover -s tests -v
+```
+
 ## Coding Style & Naming Conventions
 
-Use Python 3.12-compatible code. Prefer clear notebook cells with one responsibility: setup, data validation, model definition, training, and evaluation. Use `snake_case` for variables/functions and `PascalCase` for model classes. Keep configuration in the `CFG` dictionary rather than scattering constants across cells. Preserve checkpoint naming conventions: `best.pt`, `last.pt`, `history.csv`, `metrics.json`, and `test_predictions.csv` under `checkpoints/<run_name>/`.
+Use Python 3.12-compatible code, four-space indentation, `snake_case` functions, and `PascalCase` classes. Keep model, data, and optimization choices in frozen config files. Notebook cells should each handle one responsibility. Preserve checkpoint outputs such as `best.pt`, `last.pt`, `history.csv`, `metrics.json`, and `test_predictions.csv` under `checkpoints/<run_name>/`.
 
 ## Testing Guidelines
 
-There is no formal test suite. Before committing notebook changes, run a smoke path: imports, dataset/manifest validation, dataloader creation, and one forward pass. Confirm logits shape is `[BATCH_SIZE, 7]`. Do not run full 60-epoch training just to validate structural changes unless required.
+Tests use `unittest` under `tests/`; name files `test_*.py` and methods `test_*`. Before committing pipeline changes, run the suite plus a smoke path covering manifest validation, dataloader creation, and one forward pass with logits shape `[batch_size, 7]`. Full training is not a structural test.
+
+## Research Protocol
+
+Read `agents.d/LITERATURE_AND_EXPERIMENT_PLAN.md` before experiment work. Use train for optimization, validation for checkpoint selection, and test only for finalized evaluation. New runs must use `caer_s_content_disjoint_v1`, record config/manifest/detector hashes, and keep reported literature results separate from reproduced results. Do not claim causality from masking, shuffling, or feature perturbation alone.
 
 ## Commit & Pull Request Guidelines
 
-Current Git history uses short messages such as `update`; prefer more descriptive imperative messages, for example `add wandb logging to notebook`. Pull requests should summarize notebook changes, mention whether training was run, include key metrics if available, and note any generated artifacts intentionally left uncommitted.
+Use descriptive imperative commits, for example `fix validation split provenance`. Pull requests should state the hypothesis, protocol/config, test command, compute used, and whether test-set metrics were accessed. Keep one research objective per pull request.
 
 ## Security & Configuration Tips
 

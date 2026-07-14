@@ -1,5 +1,9 @@
 # RESEARCH_PLAN.md — CAER-S to CD-ICA-Net
 
+> The authoritative scope, experiment order, deliverables, and stop conditions are in
+> `agents.d/LITERATURE_AND_EXPERIMENT_PLAN.md`. This file retains the phase-level
+> architecture roadmap and must not override that protocol.
+
 ## 1. Research Question
 
 Pertanyaan utama:

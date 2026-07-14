@@ -2,3 +2,12 @@
 	path = third_party/CAER
 	url = https://github.com/ndkhanh360/CAER.git
 	ignore = untracked
+[submodule "paper/code_sources/glamor-net"]
+	path = paper/code_sources/glamor-net
+	url = https://github.com/minhnhatvt/glamor-net.git
+[submodule "paper/code_sources/ccim"]
+	path = paper/code_sources/ccim
+	url = https://github.com/ydk122024/CCIM.git
+[submodule "paper/code_sources/emotic"]
+	path = paper/code_sources/emotic
+	url = https://github.com/rkosti/emotic.git

@@ -65,7 +65,54 @@ class ContentDisjointSplitTests(unittest.TestCase):
             self.assertEqual((output_dir / "val.txt").read_text(encoding="utf-8"), "\n")
             with (output_dir / "manifest.jsonl").open(encoding="utf-8") as handle:
                 retained_rows = [json.loads(line) for line in handle]
-            self.assertEqual([row["sample_id"] for row in retained_rows], ["train__duplicate", "test__unique"])
+            self.assertEqual(
+                [row["sample_id"] for row in retained_rows],
+                [
+                    "train__train__Angry__train_duplicate_png",
+                    "test__test__Angry__test_unique_png",
+                ],
+            )
+
+    def test_normalizes_validation_manifest_to_test_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            dataset_root = root / "CAER-S"
+            detector_dir = root / "detectors"
+            output_dir = root / "protocol"
+            (dataset_root / "test" / "Angry").mkdir(parents=True)
+            detector_dir.mkdir()
+
+            Image.new("RGB", (20, 20), color=(0, 255, 0)).save(
+                dataset_root / "test" / "Angry" / "val_unique.png"
+            )
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "val__train__Angry__val_unique_png",
+                        "image_path": "train/Angry/val_unique.png",
+                        "label": "Anger",
+                        "split": "val",
+                        "face_bbox": [1, 1, 10, 10],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (detector_dir / "train.txt").write_text("", encoding="utf-8")
+            (detector_dir / "val.txt").write_text(
+                "Anger/val_unique.png,0,1,1,10,10\n", encoding="utf-8"
+            )
+            (detector_dir / "test.txt").write_text("", encoding="utf-8")
+
+            report = build_content_disjoint_protocol(
+                manifest_path, dataset_root, detector_dir, output_dir
+            )
+
+            output_row = json.loads((output_dir / "manifest.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual(output_row["image_path"], "test/Angry/val_unique.png")
+            self.assertEqual(output_row["sample_id"], "val__test__Angry__val_unique_png")
+            self.assertEqual(report["split_storage_roots"]["val"], "test")
 
 
 if __name__ == "__main__":

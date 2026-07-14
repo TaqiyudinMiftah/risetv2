@@ -25,6 +25,8 @@ from research_audit import (
 
 REPO_ROOT = Path(__file__).resolve().parent
 SPLIT_PRIORITY = ("train", "val", "test")
+DISK_SPLIT_BY_SPLIT = {"train": "train", "val": "test", "test": "test"}
+CLASS_DIRECTORY_ALIASES = {"Anger": ("Anger", "Angry")}
 
 
 @dataclass(frozen=True)
@@ -55,11 +57,36 @@ def _manifest_entry(row: dict[str, Any]) -> tuple[str, int, tuple[int, int, int,
     return relative_path, LABEL_TO_INDEX[label], bbox
 
 
-def _image_path(row: dict[str, Any], dataset_root: Path) -> Path:
-    split = str(row["split"])
-    disk_split = "train" if split == "train" else "test"
-    image_path = PurePosixPath(str(row["image_path"]))
-    return dataset_root / disk_split / image_path.parts[-2] / image_path.name
+def _image_path(detector_path: str, split: str, dataset_root: Path) -> Path:
+    relative_path = PurePosixPath(detector_path)
+    disk_split = DISK_SPLIT_BY_SPLIT[split]
+    class_name = relative_path.parts[0]
+    for directory_name in CLASS_DIRECTORY_ALIASES.get(class_name, (class_name,)):
+        candidate = (
+            dataset_root
+            / disk_split
+            / directory_name
+            / PurePosixPath(*relative_path.parts[1:])
+        )
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"Missing source image for {split} detector path {detector_path!r} under "
+        f"{dataset_root / disk_split}"
+    )
+
+
+def _normalized_manifest_row(
+    row: dict[str, Any],
+    split: str,
+    image_path: Path,
+    dataset_root: Path,
+) -> dict[str, Any]:
+    normalized = dict(row)
+    relative_path = image_path.relative_to(dataset_root).as_posix()
+    normalized["image_path"] = relative_path
+    normalized["sample_id"] = f"{split}__{relative_path}".replace("/", "__").replace(".", "_")
+    return normalized
 
 
 def _read_sources(manifest_path: Path, dataset_root: Path, detector_dir: Path) -> dict[str, list[SourceSample]]:
@@ -89,10 +116,9 @@ def _read_sources(manifest_path: Path, dataset_root: Path, detector_dir: Path) -
                 detector_sample.face_bbox,
             ):
                 raise ValueError(f"{split} detector and manifest differ at sample {index}")
-            image_path = _image_path(row, dataset_root)
-            if not image_path.is_file():
-                raise FileNotFoundError(f"Missing source image: {image_path}")
-            records[split].append((row, detector_line, image_path))
+            image_path = _image_path(detector_sample.image_path, split, dataset_root)
+            normalized_row = _normalized_manifest_row(row, split, image_path, dataset_root)
+            records[split].append((normalized_row, detector_line, image_path))
 
     all_records = [record for split in SPLIT_PRIORITY for record in records[split]]
     workers = min(8, max(1, os.cpu_count() or 1))
@@ -198,6 +224,8 @@ def build_content_disjoint_protocol(
         "selection_policy": "retain first exact-content occurrence in train -> val -> test source order",
         "source_manifest": str(manifest_path.resolve()),
         "source_detector_dir": str(detector_dir.resolve()),
+        "split_storage_roots": DISK_SPLIT_BY_SPLIT,
+        "manifest_provenance_normalized": True,
         "input_hashes": input_hashes,
         "output_hashes": output_hashes,
         "source_counts": {split: len(sources[split]) for split in SPLIT_PRIORITY},

@@ -2,7 +2,7 @@
 
 This protocol is the required data gate for new research experiments. It removes exact byte-identical images from the source detector splits without changing the raw `CAER-S/` dataset.
 
-The generator retains the first occurrence of an image hash in fixed priority order: `train`, then `val`, then `test`. Later duplicates are recorded in `removed_samples.csv`. It preserves retained labels and raw detector bboxes exactly, including coordinates outside image bounds, to remain compatible with the upstream Pillow crop behavior.
+The generator retains the first occurrence of an image hash in fixed priority order: `train`, then `val`, then `test`. Later duplicates are recorded in `removed_samples.csv`. It preserves retained labels and raw detector bboxes exactly, including coordinates outside image bounds, to remain compatible with the upstream Pillow crop behavior. It also normalizes manifest provenance to the upstream storage rule: logical `train` uses `CAER-S/train/`, while logical `val` and `test` use `CAER-S/test/`.
 
 Generate the local protocol artifacts once:
 

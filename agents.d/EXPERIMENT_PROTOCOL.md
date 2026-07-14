@@ -5,7 +5,8 @@
 - Train split only for optimization.
 - Validation split only for model selection.
 - Test split only for final evaluation.
-- Validation path must follow official detector protocol.
+- Validation path must follow the upstream detector protocol: logical `val` samples are stored under physical `CAER-S/test/`, not `CAER-S/train/`.
+- New experiments must use `protocols/caer_s_content_disjoint_v1.md`; the overlapping upstream split is historical reproduction only.
 - Canonical class order:
   1. Anger
   2. Disgust
@@ -21,6 +22,7 @@ Before training:
 - verify no duplicate sample ID;
 - verify no train/test overlap;
 - save manifest hash.
+- verify physical split provenance (`train -> train`, `val -> test`, `test -> test`).
 
 ## Model Selection
 

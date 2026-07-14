@@ -155,7 +155,20 @@ def audit_manifest(manifest_path: Path, dataset_root: Path, detector_dir: Path) 
         canonical_paths[split].add(relative_path)
 
         expected_disk_split = "train" if split == "train" else "test"
-        image_path = dataset_root / expected_disk_split / PurePosixPath(str(row["image_path"])).parts[-2] / PurePosixPath(str(row["image_path"])).name
+        actual_disk_split = PurePosixPath(str(row["image_path"])).parts[0]
+        if actual_disk_split != expected_disk_split:
+            issues["invalid_split_provenance"] += 1
+            if len(examples["invalid_split_provenance"]) < 10:
+                examples["invalid_split_provenance"].append(
+                    [row_number, split, str(row["image_path"]), expected_disk_split]
+                )
+        manifest_image_path = PurePosixPath(str(row["image_path"]))
+        image_path = (
+            dataset_root
+            / expected_disk_split
+            / manifest_image_path.parts[-2]
+            / manifest_image_path.name
+        )
         if not image_path.is_file():
             issues["missing_image"] += 1
             examples["missing_image"].append([row_number, str(image_path)])
@@ -223,6 +236,7 @@ def audit_manifest(manifest_path: Path, dataset_root: Path, detector_dir: Path) 
         "unknown_split",
         "duplicate_sample_id",
         "invalid_manifest_row",
+        "invalid_split_provenance",
         "duplicate_image_within_split",
         "missing_image",
         "detector_manifest_mismatch",
