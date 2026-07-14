@@ -145,7 +145,7 @@ BATCH_SIZE = 64
 
 Jika memori GPU tidak cukup, turunkan `PER_GPU_BATCH_SIZE` di cell dataloader.
 
-## Pipeline Official ndkhanh360/CAER
+## Pipeline Upstream-Community ndkhanh360/CAER
 
 Pipeline alternatif dari `https://github.com/ndkhanh360/CAER` tersedia sebagai submodule di `third_party/CAER/`. Setelah clone repo ini di mesin baru, ambil submodule dengan:
 
@@ -168,15 +168,18 @@ python run_caer_official.py prepare \
   --force
 ```
 
-Training dual-GPU dengan 2x RTX 3060 pada split bersih:
+Run eksploratori seed 42 pada 2x RTX 3060:
 
 ```bash
 python run_caer_official.py train \
-  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
-  --device 0,1 --n-gpu 2
+  --config configs/experiments/caernet_upstream_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0,1 --n-gpu 2 \
+  --wandb-mode offline
 ```
 
-Config default `configs/caer_official.json` mengikuti checkpoint pretrained upstream:
+`--detector-dir` sekarang default ke protokol content-disjoint. Launcher menolak training jika salah satu GPU terpilih memiliki memori bebas kurang dari 6000 MiB, menyimpan hash input dan config di `artifacts/experiments/<run_id>/run_metadata.json`, lalu memperbarui `experiments/registry.csv`. Gunakan `--wandb-mode online` setelah `wandb login`; API key tidak diperlukan untuk mode offline.
+
+Config dasar `configs/caer_official.json` mengikuti checkpoint pretrained upstream:
 
 ```text
 optimizer = SGD(lr=0.01, momentum=0.9, nesterov=True)
@@ -185,29 +188,30 @@ lr_scheduler = StepLR(step_size=15, gamma=0.5)
 epochs = 150
 ```
 
-`detectors/` asli hanya digunakan untuk reproduksi historis. Jangan resume checkpoint lama atau memakai split historis untuk controlled comparison. Reproduksi upstream pada protokol bersih tetap memakai `val_accuracy` agar sesuai kode official; implementasi in-repo pada Phase 1 akan memakai validation macro F1 sebagai aturan seleksi penelitian.
+`detectors/` asli hanya digunakan untuk reproduksi historis. Jangan resume checkpoint lama atau memakai split historis untuk controlled comparison. Reproduksi upstream-community pada protokol bersih tetap memakai `val_accuracy` agar sesuai kode sumber tersebut; implementasi in-repo akan memakai validation macro F1 sebagai aturan seleksi penelitian. Seed sekarang diterapkan oleh `run_caer_upstream_train.py`, karena source upstream mengunci seed `123` saat import.
 
-Untuk smoke test cepat:
+Validasi command tanpa memulai training:
 
 ```bash
 python run_caer_official.py train \
-  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
-  --device 0 --n-gpu 1 --epochs 1 --batch-size 8 --no-tensorboard
+  --config configs/experiments/caernet_upstream_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0,1 --n-gpu 2 --dry-run
 ```
 
 Checkpoint dan TensorBoard log disimpan oleh kode upstream di:
 
 ```text
-third_party/CAER/CAER/official_runs/models/CAER_S_Official_CAERNet/<run_id>/
-third_party/CAER/CAER/official_runs/log/CAER_S_Official_CAERNet/<run_id>/
+third_party/CAER/CAER/official_runs/models/<experiment_name>/<run_id>/
+third_party/CAER/CAER/official_runs/log/<experiment_name>/<run_id>/
 ```
 
-Evaluasi checkpoint official:
+Evaluasi checkpoint hanya setelah model dipilih dari validation dan kandidat dinyatakan final:
 
 ```bash
 python run_caer_official.py test \
-  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
+  --config configs/experiments/caernet_upstream_content_disjoint_exploratory_seed42.json \
+  --seed 42 \
   --device 0 \
   --n-gpu 1 \
-  --resume third_party/CAER/CAER/official_runs/models/CAER_S_Official_CAERNet/<run_id>/model_best.pth
+  --resume third_party/CAER/CAER/official_runs/models/<experiment_name>/<run_id>/model_best.pth
 ```

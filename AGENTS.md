@@ -29,6 +29,12 @@ python prepare_content_disjoint_split.py
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
+Validate the frozen exploratory run without allocating GPUs:
+
+```bash
+python run_caer_official.py train --config configs/experiments/caernet_upstream_content_disjoint_exploratory_seed42.json --seed 42 --dry-run
+```
+
 ## Coding Style & Naming Conventions
 
 Use Python 3.12-compatible code, four-space indentation, `snake_case` functions, and `PascalCase` classes. Keep model, data, and optimization choices in frozen config files. Notebook cells should each handle one responsibility. Preserve checkpoint outputs such as `best.pt`, `last.pt`, `history.csv`, `metrics.json`, and `test_predictions.csv` under `checkpoints/<run_name>/`.
