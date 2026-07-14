@@ -51,7 +51,7 @@ def _relative_symlink(source: Path, target: Path, force: bool = False) -> None:
     target.symlink_to(rel_source, target_is_directory=source.is_dir())
 
 
-def prepare_data(force: bool = False) -> None:
+def prepare_data(force: bool = False, detector_dir: Path = DETECTOR_ROOT) -> None:
     if not CAER_CODE_DIR.exists():
         raise FileNotFoundError(
             "third_party/CAER/CAER tidak ditemukan. Jalankan: "
@@ -71,7 +71,7 @@ def prepare_data(force: bool = False) -> None:
             _relative_symlink(source, target, force=force)
 
     for name in ("train.txt", "val.txt", "test.txt"):
-        source = DETECTOR_ROOT / name
+        source = detector_dir / name
         if not source.is_file():
             raise FileNotFoundError(f"Detector file tidak ditemukan: {source}")
         _relative_symlink(source, OFFICIAL_DATA_DIR / name, force=force)
@@ -126,7 +126,7 @@ def _resolve_cli_path(path: Path) -> str:
 
 
 def train(args: argparse.Namespace) -> None:
-    prepare_data(force=args.force_prepare)
+    prepare_data(detector_dir=args.detector_dir, force=args.force_prepare)
     run_config = _write_run_config(args)
     command = [sys.executable, "train.py", "--config", str(run_config)]
     if args.resume:
@@ -137,7 +137,7 @@ def train(args: argparse.Namespace) -> None:
 
 
 def test(args: argparse.Namespace) -> None:
-    prepare_data(force=args.force_prepare)
+    prepare_data(detector_dir=args.detector_dir, force=args.force_prepare)
     if not args.resume:
         raise SystemExit("--resume wajib diisi untuk evaluasi official pipeline.")
     run_config = _write_run_config(args)
@@ -160,10 +160,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare = subparsers.add_parser("prepare", help="Create upstream-compatible data symlinks.")
     prepare.add_argument("--force", action="store_true", help="Replace stale generated symlinks.")
-    prepare.set_defaults(func=lambda args: prepare_data(force=args.force))
+    prepare.add_argument("--detector-dir", type=Path, default=DETECTOR_ROOT)
+    prepare.set_defaults(func=lambda args: prepare_data(detector_dir=args.detector_dir, force=args.force))
 
     def add_run_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+        subparser.add_argument(
+            "--detector-dir",
+            type=Path,
+            default=DETECTOR_ROOT,
+            help="Directory containing train.txt, val.txt, and test.txt.",
+        )
         subparser.add_argument("--device", default="0,1", help="CUDA device list for upstream script.")
         subparser.add_argument("--n-gpu", type=int, default=None, help="Override config n_gpu.")
         subparser.add_argument("--batch-size", type=int, default=None)

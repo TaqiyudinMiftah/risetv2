@@ -143,16 +143,27 @@ Pipeline alternatif dari `https://github.com/ndkhanh360/CAER` tersedia sebagai s
 git submodule update --init --recursive
 ```
 
-Siapkan symlink data untuk format upstream:
+Untuk reproduksi historis upstream, siapkan symlink data default:
 
 ```bash
 python run_caer_official.py prepare
 ```
 
-Training dual-GPU dengan 2x RTX 3060:
+Untuk seluruh eksperimen riset baru, gunakan split content-disjoint yang berversi. Generator tidak mengubah dataset mentah dan mencatat semua sampel duplikat yang dikeluarkan:
 
 ```bash
-python run_caer_official.py train --device 0,1 --n-gpu 2
+python prepare_content_disjoint_split.py
+python run_caer_official.py prepare \
+  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
+  --force
+```
+
+Training dual-GPU dengan 2x RTX 3060 pada split bersih:
+
+```bash
+python run_caer_official.py train \
+  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
+  --device 0,1 --n-gpu 2
 ```
 
 Config default `configs/caer_official.json` mengikuti checkpoint pretrained upstream:
@@ -164,12 +175,14 @@ lr_scheduler = StepLR(step_size=15, gamma=0.5)
 epochs = 150
 ```
 
-Untuk eksperimen bersih, mulai dari scratch dengan command di atas. Jangan resume dari checkpoint run Adam lama ketika membandingkan dengan baseline official.
+`detectors/` asli hanya digunakan untuk reproduksi historis. Jangan resume checkpoint lama atau memakai split historis untuk controlled comparison. Reproduksi upstream pada protokol bersih tetap memakai `val_accuracy` agar sesuai kode official; implementasi in-repo pada Phase 1 akan memakai validation macro F1 sebagai aturan seleksi penelitian.
 
 Untuk smoke test cepat:
 
 ```bash
-python run_caer_official.py train --device 0 --n-gpu 1 --epochs 1 --batch-size 8 --no-tensorboard
+python run_caer_official.py train \
+  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
+  --device 0 --n-gpu 1 --epochs 1 --batch-size 8 --no-tensorboard
 ```
 
 Checkpoint dan TensorBoard log disimpan oleh kode upstream di:
@@ -183,6 +196,7 @@ Evaluasi checkpoint official:
 
 ```bash
 python run_caer_official.py test \
+  --detector-dir artifacts/protocols/caer_s_content_disjoint_v1 \
   --device 0 \
   --n-gpu 1 \
   --resume third_party/CAER/CAER/official_runs/models/CAER_S_Official_CAERNet/<run_id>/model_best.pth

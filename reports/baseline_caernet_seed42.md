@@ -43,4 +43,8 @@ This checkpoint is **not frozen as a clean research baseline**. Exact image-cont
 
 There are 333 detector boxes outside their source image bounds. They remain valid for the upstream baseline because `PIL.Image.crop` pads out-of-bounds regions; changing them would invalidate comparison with the official pipeline.
 
-Phase 0 stops here. Before Phase 1 or multi-seed training, define and version a clean split policy for the duplicate images, regenerate the manifest, and retrain/evaluate under that clean protocol.
+## Clean Protocol Follow-up
+
+The data gate is now implemented as `caer_s_content_disjoint_v1`. It retains 48,816 train, 6,965 validation, and 13,925 test samples after removing 57 duplicates with fixed `train -> val -> test` priority. An independent audit reports zero train-validation, train-test, and validation-test content-hash overlap. Its generated manifest SHA-256 is `aa5d592c4c9a9cad556efa470c8fafc87c3fb6c076608b1dfb31509c20e90d32`.
+
+This resolves the dataset-protocol gate, not the baseline-freeze acceptance. The next model run must train CAER-Net from scratch on `caer_s_content_disjoint_v1` and evaluate test only after validation-based selection. The upstream reproduction keeps its official `val_accuracy` selector; the clean in-repo implementation will adopt validation macro F1 during Phase 1. No Phase 1 refactor, multi-seed run, interaction baseline, or proposed CD-ICA-Net component has been started.
