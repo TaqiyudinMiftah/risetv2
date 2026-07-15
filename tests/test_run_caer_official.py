@@ -129,6 +129,41 @@ class OfficialExperimentLauncherTests(unittest.TestCase):
             self.assertEqual(rows[0]["status"], "completed")
             self.assertEqual(rows[0]["val_accuracy"], "0.75")
 
+    def test_training_progress_distinguishes_interruption_from_early_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            config = {
+                "name": "CAERNet_Final",
+                "trainer": {"save_dir": "official_runs", "epochs": 45},
+            }
+            info_log = (
+                root
+                / "official_runs"
+                / "log"
+                / "CAERNet_Final"
+                / "seed43"
+                / "info.log"
+            )
+            info_log.parent.mkdir(parents=True)
+            info_log.write_text(
+                "trainer - INFO -     epoch          : 8\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(run_caer_official, "CAER_CODE_DIR", root):
+                interrupted = run_caer_official._training_progress(config, "seed43")
+                info_log.write_text(
+                    "trainer - INFO -     epoch          : 29\n"
+                    "trainer - INFO - Validation performance didn't improve. Training stops.\n",
+                    encoding="utf-8",
+                )
+                early_stopped = run_caer_official._training_progress(config, "seed43")
+
+            self.assertEqual(interrupted["latest_epoch"], 8)
+            self.assertFalse(interrupted["completed"])
+            self.assertEqual(early_stopped["latest_epoch"], 29)
+            self.assertTrue(early_stopped["completed"])
+
     def test_resume_config_is_overridden_by_frozen_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

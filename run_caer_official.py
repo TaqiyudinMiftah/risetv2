@@ -10,6 +10,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -393,8 +394,8 @@ def _best_checkpoint_summary(config: dict[str, Any], run_id: str) -> tuple[Path,
     return checkpoint, _load_checkpoint_summary(checkpoint)
 
 
-def _run_finished_at(config: dict[str, Any], run_id: str) -> str:
-    info_log = (
+def _info_log_path(config: dict[str, Any], run_id: str) -> Path:
+    return (
         CAER_CODE_DIR
         / config["trainer"]["save_dir"]
         / "log"
@@ -402,6 +403,47 @@ def _run_finished_at(config: dict[str, Any], run_id: str) -> str:
         / run_id
         / "info.log"
     )
+
+
+def _training_progress(config: dict[str, Any], run_id: str) -> dict[str, Any]:
+    info_log = _info_log_path(config, run_id)
+    latest_epoch = None
+    stopped_early = False
+    if info_log.is_file():
+        log_text = info_log.read_text(encoding="utf-8", errors="replace")
+        epochs = [int(value) for value in re.findall(r"epoch\s+:\s+(\d+)", log_text)]
+        latest_epoch = max(epochs) if epochs else None
+        stopped_early = "Training stops." in log_text
+
+    configured_epochs = int(config["trainer"]["epochs"])
+    return {
+        "latest_epoch": latest_epoch,
+        "configured_epochs": configured_epochs,
+        "stopped_early": stopped_early,
+        "completed": stopped_early or (
+            latest_epoch is not None and latest_epoch >= configured_epochs
+        ),
+    }
+
+
+def _latest_epoch_checkpoint(config: dict[str, Any], run_id: str) -> Path | None:
+    checkpoint_dir = (
+        CAER_CODE_DIR
+        / config["trainer"]["save_dir"]
+        / "models"
+        / config["name"]
+        / run_id
+    )
+    checkpoints: list[tuple[int, Path]] = []
+    for path in checkpoint_dir.glob("checkpoint-epoch*.pth"):
+        match = re.fullmatch(r"checkpoint-epoch(\d+)\.pth", path.name)
+        if match:
+            checkpoints.append((int(match.group(1)), path))
+    return max(checkpoints, default=(0, None), key=lambda item: item[0])[1]
+
+
+def _run_finished_at(config: dict[str, Any], run_id: str) -> str:
+    info_log = _info_log_path(config, run_id)
     if info_log.is_file():
         return datetime.fromtimestamp(info_log.stat().st_mtime, UTC).isoformat(timespec="seconds")
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -513,9 +555,12 @@ def reconcile(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Generated run config not found: {run_config}")
     config = _load_config(run_config)
     checkpoint, checkpoint_summary = _best_checkpoint_summary(config, args.run_id)
+    progress = _training_progress(config, args.run_id)
 
     metadata["finished_at_utc"] = _run_finished_at(config, args.run_id)
     metadata["reconciled_at_utc"] = datetime.now(UTC).isoformat(timespec="seconds")
+    metadata["latest_epoch"] = progress["latest_epoch"]
+    metadata["configured_epochs"] = progress["configured_epochs"]
     if checkpoint_summary is None:
         metadata["status"] = "failed_incomplete"
         metadata["error"] = f"Run ended without a best checkpoint: {checkpoint}"
@@ -523,6 +568,40 @@ def reconcile(args: argparse.Namespace) -> None:
         _write_metadata(metadata)
         _update_registry(metadata)
         print(json.dumps({"run_id": args.run_id, "status": metadata["status"]}, indent=2))
+        return
+
+    if not progress["completed"]:
+        latest_checkpoint = _latest_epoch_checkpoint(config, args.run_id)
+        metadata["status"] = "interrupted"
+        metadata["checkpoint"] = str(checkpoint.relative_to(REPO_ROOT))
+        metadata["checkpoint_sha256"] = _sha256(checkpoint)
+        metadata["best_epoch"] = checkpoint_summary["best_epoch"]
+        metadata["val_accuracy"] = checkpoint_summary["monitor_best"]
+        metadata["latest_checkpoint"] = (
+            str(latest_checkpoint.relative_to(REPO_ROOT)) if latest_checkpoint else None
+        )
+        metadata["notes"] = (
+            f"Interrupted at epoch {progress['latest_epoch']} of "
+            f"{progress['configured_epochs']}; rerun this final seed from scratch because "
+            "the upstream checkpoint does not freeze all RNG and early-stopping state."
+        )
+        _write_metadata(metadata)
+        _update_registry(
+            metadata,
+            checkpoint=metadata["checkpoint"],
+            val_accuracy=metadata["val_accuracy"],
+        )
+        print(
+            json.dumps(
+                {
+                    "run_id": args.run_id,
+                    "status": metadata["status"],
+                    "latest_epoch": metadata["latest_epoch"],
+                    "best_epoch": metadata["best_epoch"],
+                },
+                indent=2,
+            )
+        )
         return
 
     metadata.pop("error", None)

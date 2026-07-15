@@ -205,6 +205,12 @@ early stopping 12, dan checkpoint selection berdasarkan validation accuracy.
 Seed 42 dijalankan ulang karena run sebelumnya berstatus eksplorasi. Jangan
 menambahkan override hyperparameter pada final multi-seed run.
 
+Jika proses berhenti sebelum mencapai epoch 45 atau early stopping, jangan
+masukkan checkpoint parsial ke hasil final. Jalankan ulang seed tersebut dari
+awal; checkpoint upstream tidak menyimpan seluruh state RNG dan penghitung early
+stopping yang diperlukan untuk resume identik. Audit progres terbaru tersedia di
+[`reports/experiment1_caernet_final_progress.md`](reports/experiment1_caernet_final_progress.md).
+
 `--detector-dir` sekarang default ke protokol content-disjoint. Launcher menolak training jika salah satu GPU terpilih memiliki memori bebas kurang dari 6000 MiB, menyimpan hash input dan config di `artifacts/experiments/<run_id>/run_metadata.json`, lalu memperbarui `experiments/registry.csv`. Gunakan `--wandb-mode online` setelah `wandb login`; API key tidak diperlukan untuk mode offline.
 
 Config dasar `configs/caer_official.json` mengikuti checkpoint pretrained upstream:
