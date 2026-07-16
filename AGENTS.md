@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository develops CD-ICA-Net from a reproducible CAER-Net baseline on CAER-S. `CAER_S_CAERNet_Reproduction_ipynb.ipynb` remains the executable demo; new reusable experiment logic belongs in Python modules with tests. Research rules live in `agents.d/`, literature and frozen source snapshots in `paper/`, detector annotations in `detectors/`, and protocol definitions in `protocols/`. Local datasets, `artifacts/`, `checkpoints/`, `wandb/`, and generated manifests must remain uncommitted.
+This repository develops CD-ICA-Net from a reproducible CAER-Net baseline on CAER-S. Reusable data, model, metric, checkpoint, and training logic belongs in `caer_research/`; `CAER_S_CAERNet_Reproduction_ipynb.ipynb` remains a legacy executable demo. Research rules live in `agents.d/`, literature and frozen source snapshots in `paper/`, detector annotations in `detectors/`, and protocol definitions in `protocols/`. Local datasets, `artifacts/`, `checkpoints/`, `wandb/`, and generated manifests must remain uncommitted.
 
 ## Build, Test, and Development Commands
 

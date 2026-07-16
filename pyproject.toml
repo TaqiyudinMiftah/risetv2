@@ -1,7 +1,7 @@
 [project]
 name = "caer-net-reproduction"
 version = "0.1.0"
-description = "CAER-Net reproduction notebook for CAER-S"
+description = "Reproducible CAER-S research pipeline from CAER-Net to CD-ICA-Net"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
@@ -25,3 +25,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = []
+
+[tool.setuptools.packages.find]
+include = ["caer_research*"]

@@ -1,0 +1,149 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+
+from caer_research.checkpointing import load_model_checkpoint
+from caer_research.data import CAERSTwoStreamDataset, load_manifest
+from caer_research.engine import extract_logits
+from caer_research.metrics import classification_metrics
+from caer_research.models import CAERNet, NotebookCAERNet
+from caer_research.trainer import Trainer
+
+
+class TinyTwoStreamDataset(Dataset):
+    def __len__(self) -> int:
+        return 4
+
+    def __getitem__(self, index: int) -> dict[str, object]:
+        return {
+            "face": torch.full((3, 2, 2), float(index)),
+            "context": torch.full((3, 2, 2), float(index + 1)),
+            "label": torch.tensor(index % 2),
+            "image_path": f"sample-{index}.png",
+        }
+
+
+class TinyTwoStreamModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.classifier = torch.nn.Linear(2, 7)
+
+    def forward(self, face: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        features = torch.stack([face.mean((1, 2, 3)), context.mean((1, 2, 3))], dim=1)
+        return self.classifier(features)
+
+
+class CleanInRepoTests(unittest.TestCase):
+    def test_caernet_forward_matches_expected_contract(self) -> None:
+        model = CAERNet().eval()
+        face = torch.randn(2, 3, 96, 96)
+        context = torch.randn(2, 3, 112, 112)
+
+        with torch.inference_mode():
+            logits = model(face, context)
+
+        self.assertEqual(tuple(logits.shape), (2, 7))
+        self.assertEqual(sum(parameter.numel() for parameter in model.parameters()), 2_390_028)
+
+    def test_notebook_model_returns_logits_and_normalized_fusion_weights(self) -> None:
+        model = NotebookCAERNet().eval()
+        face = torch.randn(2, 3, 96, 96)
+        context = torch.randn(2, 3, 112, 112)
+
+        with torch.inference_mode():
+            output = model(face, context)
+
+        self.assertEqual(tuple(extract_logits(output).shape), (2, 7))
+        torch.testing.assert_close(output["fusion_weights"].sum(dim=1), torch.ones(2))
+
+    def test_manifest_dataset_preserves_crop_mask_and_label_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            image_path = root / "train" / "Angry" / "sample.png"
+            image_path.parent.mkdir(parents=True)
+            Image.new("RGB", (20, 20), color=(255, 255, 255)).save(image_path)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "train__sample",
+                        "image_path": "train/Angry/sample.png",
+                        "label": "Anger",
+                        "split": "train",
+                        "face_bbox": [5, 5, 15, 15],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            dataset = CAERSTwoStreamDataset(manifest_path, root, split="train")
+            sample = dataset[0]
+
+            self.assertEqual(sample["face"].size, (10, 10))
+            self.assertEqual(sample["context"].getpixel((10, 10)), (0, 0, 0))
+            self.assertEqual(sample["label"].item(), 0)
+            self.assertEqual(load_manifest(manifest_path)[0].label, "Anger")
+
+    def test_checkpoint_loader_accepts_data_parallel_state_dict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            checkpoint_path = Path(temporary_directory) / "checkpoint.pt"
+            source = torch.nn.Linear(3, 2)
+            state = {f"module.{key}": value for key, value in source.state_dict().items()}
+            torch.save({"state_dict": state}, checkpoint_path)
+            target = torch.nn.Linear(3, 2)
+
+            load_model_checkpoint(target, checkpoint_path)
+
+            for source_parameter, target_parameter in zip(source.parameters(), target.parameters()):
+                torch.testing.assert_close(source_parameter, target_parameter)
+
+    def test_classification_metrics_are_sample_weighted(self) -> None:
+        metrics = classification_metrics(
+            labels=[0, 0, 1, 1],
+            predictions=[0, 1, 1, 1],
+            confidences=[0.9, 0.6, 0.8, 0.7],
+            class_names=("A", "B"),
+        )
+
+        self.assertEqual(metrics["accuracy"], 0.75)
+        self.assertIn("ece_15", metrics)
+        self.assertEqual(metrics["per_class"]["A"]["support"], 2)
+
+    def test_trainer_writes_reproducible_checkpoint_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            model = TinyTwoStreamModel()
+            loader = DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+            trainer = Trainer(
+                model=model,
+                train_loader=loader,
+                val_loader=loader,
+                optimizer=optimizer,
+                criterion=torch.nn.CrossEntropyLoss(),
+                device=torch.device("cpu"),
+                output_dir=temporary_directory,
+                config={"seed": 42},
+                epochs=1,
+                patience=2,
+            )
+
+            history = trainer.fit()
+            checkpoint = torch.load(trainer.last_path, map_location="cpu", weights_only=False)
+
+            self.assertEqual(len(history), 1)
+            self.assertTrue(trainer.best_path.is_file())
+            self.assertTrue(trainer.history_csv_path.is_file())
+            self.assertIn("rng_state", checkpoint)
+            self.assertIn("early_stopping_count", checkpoint)
+
+
+if __name__ == "__main__":
+    unittest.main()

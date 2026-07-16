@@ -5,28 +5,27 @@ Repository ini memakai reproduksi CAER-Net sebagai baseline untuk meneliti itera
 **Context-Aware Emotion Recognition Networks**  
 Lee et al., ICCV 2019
 
-Pipeline utama ada di:
+Source of truth untuk eksperimen baru berada di:
 
 ```text
-CAER_S_CAERNet_Reproduction_ipynb.ipynb
+caer_research/
 ```
 
-Notebook tersebut berisi alur end-to-end:
+`CAER_S_CAERNet_Reproduction_ipynb.ipynb` tetap dipertahankan sebagai demo dan
+referensi checkpoint lama. Business logic reusable tidak lagi ditambahkan ke
+notebook. Package memisahkan dua track:
 
-1. setup environment dan seed,
-2. pencarian root dataset CAER-S,
-3. download/cache detector files ke `detectors/`,
-4. build manifest `caers_manifest.jsonl`,
-5. dataset two-stream face/context,
-6. implementasi CAER-Net-S,
-7. training,
-8. evaluasi test set dan confusion matrix.
+1. `CAERNet`: port bersih arsitektur upstream-community/paper;
+2. `NotebookCAERNet`: kompatibilitas arsitektur dan checkpoint notebook lama.
+
+Jangan mencampur metrik kedua track.
 
 ## Struktur Saat Ini
 
 ```text
 .
-├── CAER_S_CAERNet_Reproduction_ipynb.ipynb  # pipeline utama
+├── caer_research/                            # package data/model/trainer/metrics/checkpoint
+├── CAER_S_CAERNet_Reproduction_ipynb.ipynb  # demo dan legacy reference
 ├── detectors/                               # detector txt/pth cache, bisa di-download ulang notebook
 ├── configs/caer_official.json               # config untuk pipeline official ndkhanh360/CAER
 ├── run_caer_official.py                     # wrapper train/test pipeline official
@@ -35,7 +34,8 @@ Notebook tersebut berisi alur end-to-end:
 ├── paper/                                   # PDF, matrix, notes, dan source snapshots
 ├── protocols/                               # definisi split penelitian
 ├── reports/                                 # audit dan laporan reproducibility
-├── tests/                                   # unit test audit/protokol
+├── validate_clean_caer.py                    # parity check upstream dan notebook
+├── tests/                                    # unit test audit/protokol/refactor
 ├── CAER-S/                                  # dataset lokal, di-ignore git
 ├── requirements.txt
 ├── pyproject.toml
@@ -57,6 +57,7 @@ Rekomendasi dengan `uv`:
 ```bash
 uv venv --python 3.12
 uv pip install -r requirements.txt
+uv pip install -e .
 uv run python -m ipykernel install --user --name caer-net-reproduction --display-name "CAER-Net Reproduction"
 ```
 
@@ -66,12 +67,35 @@ Atau dengan `pip` jika environment Anda menyediakannya:
 python -m pip install -r requirements.txt
 ```
 
-## Menjalankan Reproduction
+## Clean In-Repo Modules
+
+Validasi refactor pada validation samples nyata tanpa training atau test access:
+
+```bash
+python validate_clean_caer.py --split val --samples 2 --device cpu
+```
+
+Command membandingkan logits port clean dengan source upstream serta logits
+`NotebookCAERNet` dengan definisi kelas di notebook. Kedua perbandingan harus
+memiliki `max_abs_logit_difference = 0.0`. Hasil lokal disimpan di
+`artifacts/refactor/clean_caer_parity.json`.
+
+Contoh penggunaan package:
+
+```python
+from caer_research import CAERNet, CAERSTwoStreamDataset, Trainer, build_transforms
+```
+
+`Trainer` menyimpan `best.pt`, `last.pt`, `history.json`, dan `history.csv` serta
+menyertakan RNG state dan early-stopping counter agar resume dapat direproduksi.
+
+## Menjalankan Notebook Demo
 
 1. Pastikan dataset CAER-S tersedia secara lokal.
 2. Buka `CAER_S_CAERNet_Reproduction_ipynb.ipynb`.
 3. Pilih kernel `CAER-Net Reproduction`.
-4. Jalankan cell dari atas ke bawah.
+4. Jalankan cell sampai training/evaluasi validation. Jangan menjalankan bagian
+   `# 9. Evaluasi test` selama tuning atau ablation.
 5. Notebook akan membuat ulang file runtime seperti:
 
 ```text
@@ -89,9 +113,15 @@ checkpoints/<run_name>/confusion_matrix.png
 
 File runtime tersebut di-ignore agar repo tetap bersih.
 
-## Evaluasi Test Set
+## Legacy Test Evaluator
 
-Untuk mengevaluasi checkpoint tanpa membuka notebook:
+`evaluate_test.py` dipertahankan hanya untuk audit checkpoint notebook lama dan
+bukan evaluator controlled research. Jangan menjalankannya ketika memilih model,
+hyperparameter, atau ablation. Evaluasi test final harus menunggu seluruh
+kandidat dibekukan berdasarkan validation dan memerlukan unlock eksplisit pada
+evaluator yang terjaga.
+
+Contoh berikut hanya untuk reproduksi audit historis:
 
 ```bash
 python evaluate_test.py --checkpoint checkpoints/<run_name>/best.pt
@@ -103,7 +133,11 @@ Jika memakai checkpoint lama di root `checkpoints/best_caernet_s.pt`, cukup jala
 python evaluate_test.py
 ```
 
-Output evaluasi disimpan ke `eval_test/` di folder checkpoint, termasuk `eval.log`, `metrics.json`, `test_predictions.csv`, dan `confusion_matrix.png`. Untuk smoke test cepat:
+Output evaluasi historis disimpan ke `eval_test/` di folder checkpoint. Jangan
+memakai `--max-samples` dari test sebagai smoke test model baru; gunakan
+`validate_clean_caer.py` pada validation.
+
+Command historis:
 
 ```bash
 python evaluate_test.py --max-samples 64
