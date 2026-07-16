@@ -28,10 +28,10 @@ Eksperimen dibagi menjadi empat kelompok:
 1. **Protocol and baseline audit - complete.** Split
    `caer_s_content_disjoint_v1`, detector, overlap, class order, dan evaluator
    telah diaudit. Test set masih terkunci.
-2. **Freeze CAER-Net - in progress.** Run eksplorasi seed 42 mencapai validation
-   accuracy `0.7271` dan macro F1 `0.7299`. Protokol final dibekukan pada seed
-   42, 43, 44 dengan budget 45 epoch, early stopping 12, dan seleksi
-   `val_accuracy` untuk track upstream-community.
+2. **Freeze upstream-community CAER-Net - complete.** Seed 42, 43, dan 44
+   menghasilkan validation accuracy `0.7473 +/- 0.0178` dan macro F1
+   `0.7459 +/- 0.0141`. Protokol memakai budget 45 epoch, early stopping 12,
+   dan seleksi `val_accuracy`. Test tetap terkunci.
 3. **Clean in-repo baseline.** Pindahkan business logic notebook ke modul,
    verifikasi prediksi, lalu jalankan tiga seed. Track ini tidak digabung dengan
    hasil upstream-community.
@@ -49,7 +49,8 @@ Eksperimen dibagi menjadi empat kelompok:
    matrix, reliability diagram, attention maps, error analysis, registry, config,
    prediction, hash, dan checkpoint.
 
-## Current Compute Gate
+## Current Gate
 
-Tiga run final CAER-Net memerlukan compute panjang dan dijalankan berurutan
-setelah dry-run berhasil. Tidak ada metrik test yang diakses pada tahap ini.
+Sebelum baseline komponen dilatih, clean in-repo CAER-Net harus menghasilkan
+prediksi yang konsisten dengan implementasi yang dipindahkan dari notebook.
+Tidak ada metrik test yang diakses pada tahap ini.

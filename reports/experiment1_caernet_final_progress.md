@@ -1,4 +1,4 @@
-# Experiment 1: Final CAER-Net Progress
+# Experiment 1: Final CAER-Net Training Audit
 
 ## Protocol
 
@@ -14,28 +14,21 @@
 | Seed | Run ID | Status | Latest epoch | Best epoch | Validation accuracy | Macro F1 | Neutral F1 |
 | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 42 | `caernet__upstream_community__seed42__20260714_224828` | completed | 29 | 16 | 0.727064 | 0.729878 | 0.540762 |
-| 43 | `caernet__upstream_community__seed43__20260715_030113` | interrupted | 8 | 8 | not final | not evaluated | not evaluated |
-| 44 | not created | pending | - | - | - | - | - |
+| 43 | `caernet__upstream_community__seed43__20260715_110722` | completed | 45 | 37 | 0.753912 | 0.751444 | 0.572277 |
+| 44 | `caernet__upstream_community__seed44__20260715_130832` | completed | 45 | 39 | 0.760804 | 0.756444 | 0.569024 |
 
 Seed 42 was evaluated in a fresh process over all 6,965 validation samples. Its
 checkpoint and detector hashes matched the frozen run config. The test split
 remains locked.
 
-Seed 43 stopped after epoch 8 without an active training process or a normal
-early-stopping message. Its best validation accuracy at interruption was
-`0.556692`, but this value is not a final result and must not enter aggregate
-statistics. The upstream checkpoint does not preserve all RNG and early-stopping
-state, so the final seed must be rerun from scratch rather than resumed.
+An earlier seed 43 attempt, `caernet__upstream_community__seed43__20260715_030113`,
+stopped at epoch 8 and remains marked `interrupted`. It is retained only as an
+audit record and is excluded from aggregate statistics. The replacement run was
+trained from scratch.
 
-## Required Next Run
+## Completion
 
-```bash
-python run_caer_final_multiseed.py \
-  --seeds 43 44 \
-  --device 0,1 --n-gpu 2 \
-  --wandb-mode offline
-```
-
-After both runs complete, evaluate each `model_best.pth` on validation and
-report mean and sample standard deviation across seeds 42, 43, and 44. Do not
-evaluate test until the controlled candidate set is frozen.
+All three final checkpoints were evaluated on validation using the same detector
+hash and sample-weighted evaluator. Aggregate statistics and per-class results
+are frozen in `reports/experiment1_caernet_final_results.md`. Do not evaluate
+test until the controlled candidate set is frozen.

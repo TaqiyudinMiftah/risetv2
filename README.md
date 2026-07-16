@@ -209,7 +209,20 @@ Jika proses berhenti sebelum mencapai epoch 45 atau early stopping, jangan
 masukkan checkpoint parsial ke hasil final. Jalankan ulang seed tersebut dari
 awal; checkpoint upstream tidak menyimpan seluruh state RNG dan penghitung early
 stopping yang diperlukan untuk resume identik. Audit progres terbaru tersedia di
-[`reports/experiment1_caernet_final_progress.md`](reports/experiment1_caernet_final_progress.md).
+[`reports/experiment1_caernet_final_results.md`](reports/experiment1_caernet_final_results.md).
+
+Setelah validation setiap checkpoint selesai, validasi hash dan hitung agregat
+tiga seed dengan:
+
+```bash
+python summarize_caer_multiseed.py \
+  --run-id caernet__upstream_community__seed42__20260714_224828 \
+  --run-id caernet__upstream_community__seed43__20260715_110722 \
+  --run-id caernet__upstream_community__seed44__20260715_130832
+```
+
+Ringkasan JSON disimpan di `artifacts/experiments/` dan laporan Markdown di
+`reports/experiment1_caernet_final_results.md`.
 
 `--detector-dir` sekarang default ke protokol content-disjoint. Launcher menolak training jika salah satu GPU terpilih memiliki memori bebas kurang dari 6000 MiB, menyimpan hash input dan config di `artifacts/experiments/<run_id>/run_metadata.json`, lalu memperbarui `experiments/registry.csv`. Gunakan `--wandb-mode online` setelah `wandb login`; API key tidak diperlukan untuk mode offline.
 
