@@ -89,6 +89,39 @@ from caer_research import CAERNet, CAERSTwoStreamDataset, Trainer, build_transfo
 `Trainer` menyimpan `best.pt`, `last.pt`, `history.json`, dan `history.csv` serta
 menyertakan RNG state dan early-stopping counter agar resume dapat direproduksi.
 
+## Clean Exploratory Training
+
+Validasi config tanpa mengalokasikan training GPU:
+
+```bash
+python run_caer_clean.py train \
+  --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0,1 --n-gpu 2 \
+  --wandb-mode offline --dry-run
+```
+
+Jalankan dual-GPU smoke forward dengan batch nyata:
+
+```bash
+python run_caer_clean.py train \
+  --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0,1 --n-gpu 2 \
+  --wandb-mode disabled --smoke-only
+```
+
+Training panjang dijalankan di `tmux` agar tetap aktif setelah terminal terputus:
+
+```bash
+tmux new-session -d -s caer-clean-s42 \
+  "cd /home/agung/riset/risetv2 && .venv/bin/python run_caer_clean.py train \
+  --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0,1 --n-gpu 2 --wandb-mode offline; exec bash"
+```
+
+Pantau dengan `tmux attach -t caer-clean-s42` atau
+`tmux capture-pane -pt caer-clean-s42 -S -80`. Test split tidak dibuat oleh
+launcher ini.
+
 ## Menjalankan Notebook Demo
 
 1. Pastikan dataset CAER-S tersedia secara lokal.

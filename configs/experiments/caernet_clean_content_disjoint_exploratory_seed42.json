@@ -1,0 +1,53 @@
+{
+    "name": "CAERNet_CleanInRepo_ContentDisjoint_Exploratory",
+    "seed": 42,
+    "n_gpu": 2,
+    "research": {
+        "stage": "exploratory",
+        "track": "clean_inrepo",
+        "protocol": "caer_s_content_disjoint_v1",
+        "selection_metric": "val_macro_f1",
+        "test_during_training": false
+    },
+    "model": {
+        "type": "CAERNet",
+        "args": {
+            "use_face": true,
+            "use_context": true,
+            "concat": false
+        }
+    },
+    "data": {
+        "dataset_root": "CAER-S",
+        "manifest": "artifacts/protocols/caer_s_content_disjoint_v1/manifest.jsonl",
+        "batch_size": 128,
+        "num_workers": 4
+    },
+    "optimizer": {
+        "type": "SGD",
+        "args": {
+            "lr": 0.01,
+            "momentum": 0.9,
+            "nesterov": true,
+            "weight_decay": 0.0
+        }
+    },
+    "scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 15,
+            "gamma": 0.5
+        }
+    },
+    "trainer": {
+        "epochs": 45,
+        "monitor": "macro_f1",
+        "early_stopping_patience": 12,
+        "use_amp": false,
+        "grad_clip_max_norm": null
+    },
+    "wandb": {
+        "project": "caer-net-reproduction",
+        "mode": "offline"
+    }
+}

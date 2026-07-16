@@ -43,6 +43,7 @@ class Trainer:
         grad_clip_max_norm: float | None = None,
         epoch_callback: EpochCallback | None = None,
         logger: logging.Logger | None = None,
+        train_generator: torch.Generator | None = None,
     ) -> None:
         self.model = model
         self.train_loader = train_loader
@@ -61,6 +62,7 @@ class Trainer:
         self.grad_clip_max_norm = grad_clip_max_norm
         self.epoch_callback = epoch_callback
         self.logger = logger or logging.getLogger(__name__)
+        self.train_generator = train_generator
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
         self.best_path = self.output_dir / "best.pt"
         self.last_path = self.output_dir / "last.pt"
@@ -82,6 +84,10 @@ class Trainer:
         if checkpoint.get("rng_state") is None:
             raise ValueError("Clean training resume requires checkpoint RNG state.")
         restore_rng_state(checkpoint["rng_state"])
+        if self.train_generator is not None:
+            if checkpoint.get("train_generator_state") is None:
+                raise ValueError("Clean training resume requires DataLoader generator state.")
+            self.train_generator.set_state(checkpoint["train_generator_state"])
         self.start_epoch = int(checkpoint["epoch"]) + 1
         self.best_metric = float(checkpoint["best_metric"])
         self.early_stopping_count = int(checkpoint["early_stopping_count"])
@@ -119,7 +125,7 @@ class Trainer:
                 writer.writerows(self.history)
 
     def _checkpoint(self, epoch: int) -> dict[str, Any]:
-        return training_checkpoint(
+        payload = training_checkpoint(
             model=self.model,
             optimizer=self.optimizer,
             scheduler=self.scheduler,
@@ -130,6 +136,9 @@ class Trainer:
             history=self.history,
             config=self.config,
         )
+        if self.train_generator is not None:
+            payload["train_generator_state"] = self.train_generator.get_state()
+        return payload
 
     def fit(self) -> list[dict[str, Any]]:
         self.model.to(self.device)

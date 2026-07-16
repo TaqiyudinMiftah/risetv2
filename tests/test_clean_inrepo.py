@@ -122,6 +122,7 @@ class CleanInRepoTests(unittest.TestCase):
             model = TinyTwoStreamModel()
             loader = DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False)
             optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+            generator = torch.Generator().manual_seed(42)
             trainer = Trainer(
                 model=model,
                 train_loader=loader,
@@ -133,6 +134,7 @@ class CleanInRepoTests(unittest.TestCase):
                 config={"seed": 42},
                 epochs=1,
                 patience=2,
+                train_generator=generator,
             )
 
             history = trainer.fit()
@@ -143,6 +145,7 @@ class CleanInRepoTests(unittest.TestCase):
             self.assertTrue(trainer.history_csv_path.is_file())
             self.assertIn("rng_state", checkpoint)
             self.assertIn("early_stopping_count", checkpoint)
+            self.assertIn("train_generator_state", checkpoint)
 
 
 if __name__ == "__main__":
