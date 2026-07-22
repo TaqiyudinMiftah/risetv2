@@ -45,7 +45,7 @@ Tests use `unittest` under `tests/`; name files `test_*.py` and methods `test_*`
 
 ## Research Protocol
 
-Read `agents.d/LITERATURE_AND_EXPERIMENT_PLAN.md` before experiment work. Use train for optimization, validation for checkpoint selection, and test only for finalized evaluation. New runs must use `caer_s_content_disjoint_v1`, record config/manifest/detector hashes, and keep reported literature results separate from reproduced results. Do not claim causality from masking, shuffling, or feature perturbation alone.
+At the start of a new Codex session, read `agents.d/CURRENT_HANDOFF.md` and verify its live-run status before taking action. Then read `agents.d/LITERATURE_AND_EXPERIMENT_PLAN.md` before experiment work. Use train for optimization, validation for checkpoint selection, and test only for finalized evaluation. New runs must use `caer_s_content_disjoint_v1`, record config/manifest/detector hashes, and keep reported literature results separate from reproduced results. Do not claim causality from masking, shuffling, or feature perturbation alone.
 
 ## Commit & Pull Request Guidelines
 
