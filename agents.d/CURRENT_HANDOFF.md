@@ -1,6 +1,6 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-22 04:36 UTC. Live process state can change after this
+Last updated: 2026-07-22 05:20 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
@@ -115,11 +115,14 @@ difference `0.0`; see `reports/phase1_clean_inrepo_refactor.md`.
 - Budget: 45 epochs; early-stopping patience 12.
 - Selection: maximum validation macro F1.
 
-Last observed state: epoch 1 completed in about 137 seconds with train loss
-`1.870005`, validation loss `1.810929`, and validation macro F1 `0.289200`.
-Both `best.pt` and `last.pt` existed; GPU 0 was at 99% utilization with about
-2.86 GB VRAM used. This is historical observation, not proof the run is still
-active.
+The run was intentionally interrupted after epoch 13 and is not completed.
+The saved `last.pt` is an end-of-epoch checkpoint with history for epochs 1--13,
+best validation macro F1 `0.577346` at epoch 8, and early-stopping count 5.
+Its SHA-256 is
+`56848a54ed329fe7468aeceac8c12ed9713c60ec731afc94e107a4a55997b832`.
+The `best.pt` SHA-256 is
+`7b69aa5535934443afe1b82ece01602bd9b42df6d3f67991130681722eaf2df8`.
+This is historical observation, not proof of a current process state.
 
 Verify before launching anything:
 
@@ -135,8 +138,39 @@ rocm-smi --showuse --showmeminfo vram
 Do not launch a duplicate if the process is active. If tmux is absent, inspect
 `history.csv`, `best.pt`, `last.pt`, metadata status, and launcher log before
 deciding whether the run completed or was interrupted. Do not fabricate a
-completion status. The current CLI has no exposed deterministic `--resume`
-path; add and test one before attempting resume, or rerun from scratch.
+completion status.
+
+The clean launcher now has a guarded state-resume path. It accepts only the
+same run's `checkpoints/<run_id>/last.pt`, verifies the source config hash,
+effective runtime config (including the one-GPU override), manifest hash,
+protocol, seed, contiguous history, and model/optimizer/scheduler/RNG/DataLoader
+generator state. It preserves the original run provenance and records every
+resume event. A CPU split-vs-uninterrupted trajectory test covers the checkpoint
+contract; ROCm execution remains deterministic-state resume rather than a claim
+of bitwise ROCm determinism.
+
+For the intentionally interrupted run, first verify no tmux trainer or GPU
+process is active, then correct the stale runtime status:
+
+```bash
+.venv/bin/python run_caer_clean.py mark-interrupted \
+  --run-id caernet__clean_inrepo__seed42__20260722_043253 \
+  --reason "operator-requested interruption after epoch 13"
+```
+
+Then resume exactly that run, never `best.pt` and never a new run ID:
+
+```bash
+HSA_OVERRIDE_GFX_VERSION=10.3.0 ROCR_VISIBLE_DEVICES=0 \
+  .venv/bin/python run_caer_clean.py train \
+  --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
+  --seed 42 --device 0 --n-gpu 1 --wandb-mode offline \
+  --resume checkpoints/caernet__clean_inrepo__seed42__20260722_043253/last.pt
+```
+
+`--run-id`, if supplied, must match the run ID encoded in `last.pt`'s parent
+directory. `KeyboardInterrupt` is recorded as `interrupted` with the latest
+valid checkpoint instead of leaving metadata falsely `running`.
 
 ## Acceptance Gate and Next Work
 

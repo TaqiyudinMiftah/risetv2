@@ -21,7 +21,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from caer_research.checkpointing import load_model_checkpoint
+from caer_research.checkpointing import load_checkpoint_payload, load_model_checkpoint
 from caer_research.data import CAERSTwoStreamDataset, build_transforms
 from caer_research.devices import (
     accelerator_snapshot,
@@ -128,6 +128,155 @@ def resolve_path(value: str) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def repository_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT.resolve()))
+    except ValueError as error:
+        raise ValueError(f"Path must be inside the repository: {path}") from error
+
+
+def interruption_details(checkpoint_path: Path, reason: str) -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "interruption_reason": reason,
+        "interrupted_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    if not checkpoint_path.is_file():
+        return details
+
+    checkpoint = load_checkpoint_payload(checkpoint_path, map_location="cpu")
+    details.update(
+        {
+            "last_checkpoint": repository_relative(checkpoint_path),
+            "last_checkpoint_sha256": sha256(checkpoint_path),
+            "last_completed_epoch": int(checkpoint["epoch"]),
+        }
+    )
+    return details
+
+
+def validate_resume_request(
+    resume_path: Path,
+    requested_run_id: str | None,
+    config_path: Path,
+    config: dict[str, Any],
+    manifest_path: Path,
+) -> tuple[str, Path, dict[str, Any], Path]:
+    """Validate that a resume request can only continue its exact frozen run."""
+    checkpoint_path = resume_path.expanduser().resolve()
+    checkpoint_root = CHECKPOINT_ROOT.resolve()
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
+    if checkpoint_path.name != "last.pt":
+        raise ValueError("Clean training may resume only from an end-of-epoch last.pt checkpoint.")
+    if checkpoint_path.parent.parent != checkpoint_root:
+        raise ValueError("Resume checkpoint must be directly under checkpoints/<run_id>/last.pt.")
+
+    run_id = checkpoint_path.parent.name
+    if requested_run_id is not None and requested_run_id != run_id:
+        raise ValueError(
+            f"--run-id {requested_run_id!r} conflicts with resume checkpoint run ID {run_id!r}."
+        )
+    output_dir = checkpoint_path.parent
+    metadata_path = METADATA_ROOT / run_id / "run_metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Resume metadata not found: {metadata_path}")
+    metadata = load_json(metadata_path)
+
+    if metadata.get("status") != "interrupted":
+        raise ValueError(
+            "Resume requires metadata status 'interrupted'; verify the prior process is stopped first."
+        )
+    expected_metadata = {
+        "run_id": run_id,
+        "seed": int(config["seed"]),
+        "protocol": config["research"]["protocol"],
+        "config": repository_relative(config_path),
+        "config_sha256": sha256(config_path),
+        "manifest": repository_relative(manifest_path),
+        "manifest_sha256": sha256(manifest_path),
+        "test_used_for_selection": False,
+    }
+    for key, expected in expected_metadata.items():
+        if metadata.get(key) != expected:
+            raise ValueError(
+                f"Resume metadata mismatch for {key}: expected {expected!r}, "
+                f"got {metadata.get(key)!r}."
+            )
+
+    frozen_runtime_config = output_dir / "config.json"
+    if not frozen_runtime_config.is_file():
+        raise FileNotFoundError(f"Frozen runtime config not found: {frozen_runtime_config}")
+    if load_json(frozen_runtime_config) != config:
+        raise ValueError("Effective resume config does not match the frozen runtime config.")
+
+    checkpoint = load_checkpoint_payload(checkpoint_path, map_location="cpu")
+    required_keys = {
+        "model_state_dict",
+        "optimizer_state_dict",
+        "scheduler_state_dict",
+        "epoch",
+        "best_metric",
+        "early_stopping_count",
+        "history",
+        "config",
+        "rng_state",
+        "train_generator_state",
+    }
+    missing = sorted(key for key in required_keys if checkpoint.get(key) is None)
+    if missing:
+        raise ValueError(f"Resume checkpoint is missing required state: {missing}")
+    if checkpoint["config"] != config:
+        raise ValueError("Resume checkpoint config does not match the effective frozen config.")
+
+    rng_state = checkpoint["rng_state"]
+    if not isinstance(rng_state, dict) or not {"python", "numpy", "torch_cpu"} <= rng_state.keys():
+        raise ValueError("Resume checkpoint does not contain the required RNG state.")
+    epoch = int(checkpoint["epoch"])
+    history = checkpoint["history"]
+    if epoch < 1 or not isinstance(history, list):
+        raise ValueError("Resume checkpoint must represent at least one completed epoch.")
+    try:
+        history_epochs = [int(row["epoch"]) for row in history]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Resume checkpoint history is malformed.") from error
+    if history_epochs != list(range(1, epoch + 1)):
+        raise ValueError("Resume checkpoint history is not contiguous through its saved epoch.")
+    return run_id, output_dir, metadata, checkpoint_path
+
+
+def mark_interrupted(args: argparse.Namespace) -> None:
+    run_id = args.run_id
+    if Path(run_id).name != run_id:
+        raise ValueError("Run ID must not contain a path separator.")
+    output_dir = CHECKPOINT_ROOT / run_id
+    metadata_path = METADATA_ROOT / run_id / "run_metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
+    metadata = load_json(metadata_path)
+    if metadata.get("run_id") != run_id:
+        raise ValueError("Run metadata does not match the requested run ID.")
+    if metadata.get("status") != "running":
+        raise ValueError("Only a verified stale 'running' run may be marked interrupted.")
+    checkpoint_path = output_dir / "last.pt"
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError("Cannot mark a run resumable without checkpoints/<run_id>/last.pt.")
+
+    metadata.update({"status": "interrupted", **interruption_details(checkpoint_path, args.reason)})
+    write_metadata(metadata)
+    update_registry(metadata)
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": metadata["status"],
+                "last_completed_epoch": metadata["last_completed_epoch"],
+                "test_accessed": False,
+            },
+            indent=2,
+        )
+    )
+
+
 def update_registry(metadata: dict[str, Any], metrics: dict[str, Any] | None = None) -> None:
     with REGISTRY_PATH.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -216,32 +365,46 @@ def train(args: argparse.Namespace) -> None:
     dataset_root = resolve_path(config["data"]["dataset_root"])
     if not manifest_path.is_file() or not dataset_root.is_dir():
         raise FileNotFoundError("Frozen manifest and CAER-S dataset root are required.")
+    if args.resume is not None and args.smoke_only:
+        raise ValueError("--resume cannot be combined with --smoke-only.")
 
-    run_id = args.run_id or make_run_id(args.seed)
-    output_dir = CHECKPOINT_ROOT / run_id
-    metadata = {
-        "run_id": run_id,
-        "status": "prepared",
-        "seed": args.seed,
-        "stage": config["research"]["stage"],
-        "track": "clean_inrepo",
-        "protocol": config["research"]["protocol"],
-        "git_sha": git_sha(),
-        "git_dirty": git_dirty(),
-        "config": str(config_path.relative_to(REPO_ROOT)),
-        "config_sha256": sha256(config_path),
-        "manifest": str(manifest_path.relative_to(REPO_ROOT)),
-        "manifest_sha256": sha256(manifest_path),
-        "test_used_for_selection": False,
-        "notes": "Exploratory clean in-repo run; test split is not loaded or evaluated.",
-        "started_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
-    }
-    metadata_path = write_metadata(metadata)
+    resume_path: Path | None = None
+    if args.resume is not None:
+        run_id, output_dir, metadata, resume_path = validate_resume_request(
+            args.resume,
+            args.run_id,
+            config_path,
+            config,
+            manifest_path,
+        )
+        metadata_path = METADATA_ROOT / run_id / "run_metadata.json"
+    else:
+        run_id = args.run_id or make_run_id(args.seed)
+        output_dir = CHECKPOINT_ROOT / run_id
+        metadata = {
+            "run_id": run_id,
+            "status": "prepared",
+            "seed": args.seed,
+            "stage": config["research"]["stage"],
+            "track": "clean_inrepo",
+            "protocol": config["research"]["protocol"],
+            "git_sha": git_sha(),
+            "git_dirty": git_dirty(),
+            "config": repository_relative(config_path),
+            "config_sha256": sha256(config_path),
+            "manifest": repository_relative(manifest_path),
+            "manifest_sha256": sha256(manifest_path),
+            "test_used_for_selection": False,
+            "notes": "Exploratory clean in-repo run; test split is not loaded or evaluated.",
+            "started_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        metadata_path = write_metadata(metadata)
     print(f"Run ID: {run_id}")
     print(f"Metadata: {metadata_path}")
     print(f"Output: {output_dir}")
     if args.dry_run:
-        print("Dry run complete; training was not started.")
+        status = "Resume preflight complete" if resume_path is not None else "Dry run complete"
+        print(f"{status}; training was not started.")
         return
 
     n_gpu = int(config["n_gpu"])
@@ -321,8 +484,9 @@ def train(args: argparse.Namespace) -> None:
         )
         return
 
-    output_dir.mkdir(parents=True, exist_ok=False)
-    (output_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    if resume_path is None:
+        output_dir.mkdir(parents=True, exist_ok=False)
+        (output_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     logger = setup_logger(output_dir / "train.log")
     wandb_run = None
     if args.wandb_mode != "disabled":
@@ -361,17 +525,37 @@ def train(args: argparse.Namespace) -> None:
         logger=logger,
         train_generator=generator,
     )
-    metadata.update(
-        {
-            "status": "running",
-            "accelerator": accelerator,
-            "gpu_free_mib_at_start": gpu_memory,
-            "params": params,
-        }
-    )
-    write_metadata(metadata)
-    update_registry(metadata)
     try:
+        if resume_path is not None:
+            trainer.resume(resume_path)
+            resume_event = {
+                "at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+                "checkpoint": repository_relative(resume_path),
+                "checkpoint_sha256": sha256(resume_path),
+                "checkpoint_epoch": trainer.start_epoch - 1,
+                "git_sha": git_sha(),
+                "git_dirty": git_dirty(),
+            }
+            resumes = list(metadata.get("resumes", []))
+            resumes.append(resume_event)
+            metadata["resumes"] = resumes
+            metadata["resume_count"] = len(resumes)
+        metadata.update(
+            {
+                "status": "running",
+                "accelerator": accelerator,
+                "gpu_free_mib_at_start": gpu_memory,
+                "params": params,
+            }
+        )
+        write_metadata(metadata)
+        update_registry(metadata)
+        if resume_path is not None:
+            logger.info(
+                "resumed_from=%s next_epoch=%s",
+                repository_relative(resume_path),
+                trainer.start_epoch,
+            )
         history = trainer.fit()
         load_model_checkpoint(model, trainer.best_path, map_location=device)
         val_result = evaluate(model, val_loader, criterion, device, use_amp=False)
@@ -401,6 +585,17 @@ def train(args: argparse.Namespace) -> None:
                     "best_val_neutral_f1": metrics["per_class"]["Neutral"]["f1"],
                 }
             )
+    except KeyboardInterrupt:
+        metadata.update(
+            {
+                "status": "interrupted",
+                **interruption_details(trainer.last_path, "KeyboardInterrupt"),
+            }
+        )
+        write_metadata(metadata)
+        update_registry(metadata)
+        logger.warning("training interrupted; resumable checkpoint state has been recorded")
+        raise
     except Exception as error:
         metadata.update(
             {
@@ -424,6 +619,12 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     train_parser.add_argument("--seed", type=int, default=42)
     train_parser.add_argument("--run-id", default=None)
+    train_parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Continue only the matching interrupted run from checkpoints/<run_id>/last.pt.",
+    )
     train_parser.add_argument("--device", default="0,1")
     train_parser.add_argument("--n-gpu", type=int, default=None)
     train_parser.add_argument("--wandb-mode", choices=("disabled", "offline", "online"), default="offline")
@@ -433,6 +634,14 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dry-run", action="store_true")
     train_parser.add_argument("--smoke-only", action="store_true")
     train_parser.set_defaults(func=train)
+
+    interrupted_parser = subparsers.add_parser(
+        "mark-interrupted",
+        help="Record a verified stopped run as interrupted before a guarded resume.",
+    )
+    interrupted_parser.add_argument("--run-id", required=True)
+    interrupted_parser.add_argument("--reason", required=True)
+    interrupted_parser.set_defaults(func=mark_interrupted)
     return parser
 
 

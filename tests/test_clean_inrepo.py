@@ -147,6 +147,105 @@ class CleanInRepoTests(unittest.TestCase):
             self.assertIn("early_stopping_count", checkpoint)
             self.assertIn("train_generator_state", checkpoint)
 
+    def test_trainer_resume_matches_uninterrupted_training(self) -> None:
+        def build_trainer(output_dir: Path, epochs: int) -> Trainer:
+            model = TinyTwoStreamModel()
+            train_generator = torch.Generator().manual_seed(314159)
+            train_loader = DataLoader(
+                TinyTwoStreamDataset(),
+                batch_size=2,
+                shuffle=True,
+                generator=train_generator,
+            )
+            val_loader = DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False)
+            optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+            return Trainer(
+                model=model,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                criterion=torch.nn.CrossEntropyLoss(),
+                device=torch.device("cpu"),
+                output_dir=output_dir,
+                config={"seed": 42, "n_gpu": 1},
+                epochs=epochs,
+                patience=10,
+                train_generator=train_generator,
+            )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            torch.manual_seed(2026)
+            uninterrupted = build_trainer(root / "uninterrupted", epochs=3)
+            uninterrupted_history = uninterrupted.fit()
+
+            torch.manual_seed(2026)
+            interrupted = build_trainer(root / "interrupted", epochs=1)
+            interrupted.fit()
+            resumed = build_trainer(root / "interrupted", epochs=3)
+            resumed.resume(interrupted.last_path)
+            resumed_history = resumed.fit()
+
+            self.assertEqual(resumed.start_epoch, 2)
+            self.assertEqual(resumed_history, uninterrupted_history)
+            self.assertEqual(resumed.best_metric, uninterrupted.best_metric)
+            self.assertEqual(resumed.early_stopping_count, uninterrupted.early_stopping_count)
+            self.assertEqual(resumed.scheduler.state_dict(), uninterrupted.scheduler.state_dict())
+            resumed_optimizer_state = resumed.optimizer.state_dict()["state"]
+            uninterrupted_optimizer_state = uninterrupted.optimizer.state_dict()["state"]
+            self.assertEqual(resumed_optimizer_state.keys(), uninterrupted_optimizer_state.keys())
+            for parameter_id in resumed_optimizer_state:
+                for key, value in resumed_optimizer_state[parameter_id].items():
+                    expected = uninterrupted_optimizer_state[parameter_id][key]
+                    if isinstance(value, torch.Tensor):
+                        torch.testing.assert_close(value, expected, rtol=0, atol=0)
+                    else:
+                        self.assertEqual(value, expected)
+            for resumed_parameter, uninterrupted_parameter in zip(
+                resumed.model.parameters(), uninterrupted.model.parameters()
+            ):
+                torch.testing.assert_close(resumed_parameter, uninterrupted_parameter, rtol=0, atol=0)
+
+    def test_trainer_resume_requires_loader_generator_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source_model = TinyTwoStreamModel()
+            trainer = Trainer(
+                model=source_model,
+                train_loader=DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False),
+                val_loader=DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False),
+                optimizer=torch.optim.SGD(source_model.parameters(), lr=0.01),
+                criterion=torch.nn.CrossEntropyLoss(),
+                device=torch.device("cpu"),
+                output_dir=root / "source",
+                config={"seed": 42},
+                epochs=1,
+                train_generator=torch.Generator().manual_seed(42),
+            )
+            trainer.fit()
+            checkpoint = torch.load(trainer.last_path, map_location="cpu", weights_only=False)
+            checkpoint.pop("train_generator_state")
+            invalid_checkpoint = root / "missing-generator.pt"
+            torch.save(checkpoint, invalid_checkpoint)
+
+            target_model = TinyTwoStreamModel()
+            target = Trainer(
+                model=target_model,
+                train_loader=DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False),
+                val_loader=DataLoader(TinyTwoStreamDataset(), batch_size=2, shuffle=False),
+                optimizer=torch.optim.SGD(target_model.parameters(), lr=0.01),
+                criterion=torch.nn.CrossEntropyLoss(),
+                device=torch.device("cpu"),
+                output_dir=root / "target",
+                config={"seed": 42},
+                epochs=2,
+                train_generator=torch.Generator().manual_seed(42),
+            )
+            with self.assertRaisesRegex(ValueError, "DataLoader generator state"):
+                target.resume(invalid_checkpoint)
+
 
 if __name__ == "__main__":
     unittest.main()
