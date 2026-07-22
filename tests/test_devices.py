@@ -40,11 +40,12 @@ class AcceleratorDeviceTests(unittest.TestCase):
                 side_effect=[(8 * devices.MIB, 16 * devices.MIB), (7 * devices.MIB, 16 * devices.MIB)],
             ),
             patch.object(devices.torch.cuda, "get_device_properties", return_value=properties),
+            patch.dict(os.environ, {"HSA_OVERRIDE_GFX_VERSION": "10.3.0"}, clear=False),
         ):
             snapshot = devices.accelerator_snapshot("2,3", requested_count=2)
 
         self.assertEqual(snapshot["backend"], "rocm")
-        self.assertIsNone(snapshot["hsa_override_gfx_version"])
+        self.assertEqual(snapshot["hsa_override_gfx_version"], "10.3.0")
         self.assertEqual(snapshot["devices"][0]["requested_index"], 2)
         self.assertEqual(snapshot["devices"][0]["logical_index"], 0)
         self.assertEqual(snapshot["devices"][1]["memory_free_mib"], 7)
