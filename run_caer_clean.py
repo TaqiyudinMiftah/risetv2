@@ -23,6 +23,11 @@ from torch.utils.data import DataLoader
 
 from caer_research.checkpointing import load_model_checkpoint
 from caer_research.data import CAERSTwoStreamDataset, build_transforms
+from caer_research.devices import (
+    accelerator_snapshot,
+    configure_visible_devices,
+    parse_device_ids,
+)
 from caer_research.engine import evaluate
 from caer_research.models import CAERNet
 from caer_research.trainer import Trainer
@@ -123,21 +128,6 @@ def resolve_path(value: str) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
-def selected_gpu_memory(device_ids: str) -> dict[int, int]:
-    selected = [int(value.strip()) for value in device_ids.split(",") if value.strip()]
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    available = {
-        int(index.strip()): int(free.strip())
-        for index, free in (line.split(",", maxsplit=1) for line in result.stdout.splitlines())
-    }
-    return {index: available[index] for index in selected}
-
-
 def update_registry(metadata: dict[str, Any], metrics: dict[str, Any] | None = None) -> None:
     with REGISTRY_PATH.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -216,7 +206,7 @@ def write_predictions(result: dict[str, Any], output_path: Path) -> None:
 
 
 def train(args: argparse.Namespace) -> None:
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.device
+    configure_visible_devices(args.device)
     config_path = args.config.expanduser().resolve()
     config = load_json(config_path)
     validate_config(config, args.seed)
@@ -254,16 +244,20 @@ def train(args: argparse.Namespace) -> None:
         print("Dry run complete; training was not started.")
         return
 
-    gpu_memory = selected_gpu_memory(args.device)
-    selected_count = len(gpu_memory)
     n_gpu = int(config["n_gpu"])
+    selected_count = len(parse_device_ids(args.device))
     if selected_count < n_gpu:
-        raise RuntimeError(f"n_gpu={n_gpu}, but --device selects only {selected_count} GPU(s).")
+        raise RuntimeError(
+            f"n_gpu={n_gpu}, but --device selects only {selected_count} accelerator(s)."
+        )
+    accelerator = accelerator_snapshot(args.device, n_gpu)
+    gpu_memory = {
+        int(device["requested_index"]): int(device["memory_free_mib"])
+        for device in accelerator["devices"]
+    }
     low_memory = {index: free for index, free in gpu_memory.items() if free < args.min_free_gpu_mib}
     if low_memory:
-        raise RuntimeError(f"GPU preflight failed: {low_memory}")
-    if torch.cuda.device_count() < n_gpu:
-        raise RuntimeError(f"PyTorch sees {torch.cuda.device_count()} GPU(s), expected {n_gpu}.")
+        raise RuntimeError(f"Accelerator preflight failed: {low_memory}")
 
     configure_determinism(args.seed)
     train_face_transform, train_context_transform = build_transforms(train=True)
@@ -367,7 +361,14 @@ def train(args: argparse.Namespace) -> None:
         logger=logger,
         train_generator=generator,
     )
-    metadata.update({"status": "running", "gpu_free_mib_at_start": gpu_memory, "params": params})
+    metadata.update(
+        {
+            "status": "running",
+            "accelerator": accelerator,
+            "gpu_free_mib_at_start": gpu_memory,
+            "params": params,
+        }
+    )
     write_metadata(metadata)
     update_registry(metadata)
     try:

@@ -212,6 +212,24 @@ BATCH_SIZE = 64
 
 Jika memori GPU tidak cukup, turunkan `PER_GPU_BATCH_SIZE` di cell dataloader.
 
+## AMD ROCm
+
+Pipeline clean in-repo mendukung PyTorch CUDA maupun ROCm. PyTorch ROCm tetap
+menggunakan API dan device string `torch.cuda`/`cuda:0`; launcher mendeteksi
+backend dari `torch.version.hip` dan tidak memerlukan `nvidia-smi`.
+
+Pada server AMD, pilih wheel/index PyTorch yang cocok dengan model GPU, OS,
+Python, dan driver ROCm menurut compatibility matrix AMD, kemudian jalankan:
+
+```bash
+scripts/bootstrap_rocm_env.sh <compatible-pytorch-rocm-index-url>
+.venv/bin/python scripts/check_accelerator.py --require-backend rocm --min-devices 1
+DEVICE_IDS=0 N_GPU=1 scripts/launch_clean_tmux.sh
+```
+
+Panduan audit hardware, migrasi runtime state, smoke test, dan monitoring ada di
+[`docs/amd_rocm_migration.md`](docs/amd_rocm_migration.md).
+
 ## Pipeline Upstream-Community ndkhanh360/CAER
 
 Pipeline alternatif dari `https://github.com/ndkhanh360/CAER` tersedia sebagai submodule di `third_party/CAER/`. Setelah clone repo ini di mesin baru, ambil submodule dengan:
