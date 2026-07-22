@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 import tempfile
@@ -13,9 +14,11 @@ import torch
 import run_caer_clean
 from caer_research.checkpointing import training_checkpoint
 from run_caer_clean import (
+    completed_run_provenance,
     make_run_id,
     mark_interrupted,
     public_evaluation_metrics,
+    reconcile_completed,
     sha256,
     validate_config,
     validate_resume_request,
@@ -76,6 +79,57 @@ class CleanTrainingLauncherTests(unittest.TestCase):
         }
         (metadata_dir / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
         return checkpoint_path, config_path, config, manifest_path
+
+    def _create_completed_fixture(
+        self,
+        root: Path,
+    ) -> tuple[str, Path, Path, list[dict[str, float]]]:
+        run_id = "caernet__clean_inrepo__seed42__completed_fixture"
+        config_path = root / "configs" / "experiment.json"
+        manifest_path = root / "artifacts" / "protocols" / "fixture" / "manifest.jsonl"
+        output_dir = root / "checkpoints" / run_id
+        metadata_dir = root / "artifacts" / "experiments" / run_id
+        config = {"seed": 42, "n_gpu": 1, "research": {"protocol": "caer_s_content_disjoint_v1"}}
+        history: list[dict[str, float]] = [
+            {"epoch": 1.0, "val_macro_f1": 0.5},
+            {"epoch": 2.0, "val_macro_f1": 0.75},
+        ]
+        config_path.parent.mkdir(parents=True)
+        manifest_path.parent.mkdir(parents=True)
+        output_dir.mkdir(parents=True)
+        metadata_dir.mkdir(parents=True)
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        manifest_path.write_text('{"split": "train"}\n', encoding="utf-8")
+        (manifest_path.parent / "train.txt").write_text("train detector\n", encoding="utf-8")
+        (manifest_path.parent / "val.txt").write_text("validation detector\n", encoding="utf-8")
+        # No test.txt is created: completed-run provenance must remain test-locked.
+        (output_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        (output_dir / "best.pt").write_bytes(b"best checkpoint")
+        (output_dir / "last.pt").write_bytes(b"last checkpoint")
+        (output_dir / "history.json").write_text(json.dumps(history), encoding="utf-8")
+        metrics = {
+            "accuracy": 0.8,
+            "macro_f1": 0.75,
+            "per_class": {"Neutral": {"f1": 0.7}},
+        }
+        (output_dir / "val_metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+        metadata = {
+            "run_id": run_id,
+            "status": "completed",
+            "seed": 42,
+            "track": "clean_inrepo",
+            "protocol": "caer_s_content_disjoint_v1",
+            "git_sha": "original-run-sha",
+            "config": str(config_path.relative_to(root)),
+            "config_sha256": sha256(config_path),
+            "manifest": str(manifest_path.relative_to(root)),
+            "manifest_sha256": sha256(manifest_path),
+            "test_used_for_selection": False,
+            "params": 123,
+            "notes": "completed fixture; test split is not loaded or evaluated.",
+        }
+        (metadata_dir / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        return run_id, output_dir, manifest_path, history
 
     def test_exploratory_config_uses_guarded_clean_protocol(self) -> None:
         config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -189,6 +243,71 @@ class CleanTrainingLauncherTests(unittest.TestCase):
             self.assertEqual(updated["status"], "interrupted")
             self.assertEqual(updated["last_completed_epoch"], 1)
             self.assertEqual(updated["last_checkpoint_sha256"], sha256(checkpoint_path))
+
+    def test_completed_provenance_hashes_only_train_and_validation_detector_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            _, output_dir, manifest_path, history = self._create_completed_fixture(root)
+            with patch.object(run_caer_clean, "REPO_ROOT", root):
+                provenance = completed_run_provenance(output_dir, manifest_path, history)
+
+            self.assertEqual(provenance["best_epoch"], 2)
+            self.assertEqual(provenance["last_completed_epoch"], 2)
+            self.assertEqual(
+                provenance["effective_config_sha256"],
+                sha256(output_dir / "config.json"),
+            )
+            self.assertEqual(set(provenance["detector_hashes"]), {"train.txt", "val.txt"})
+            self.assertEqual(
+                provenance["detector_hashes"]["val.txt"],
+                sha256(manifest_path.parent / "val.txt"),
+            )
+
+    def test_reconcile_completed_repairs_stale_completion_provenance_without_test_access(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            run_id, output_dir, _, _ = self._create_completed_fixture(root)
+            registry_path = root / "experiments" / "registry.csv"
+            registry_path.parent.mkdir()
+            registry_path.write_text(
+                "run_id,status,model,variant,seed,git_sha,config,config_sha256,"
+                "effective_config_sha256,manifest_sha256,detector_hashes,checkpoint,"
+                "checkpoint_sha256,"
+                "val_accuracy,val_macro_f1,test_accuracy,test_macro_f1,neutral_f1,"
+                "params,latency_ms,notes\n",
+                encoding="utf-8",
+            )
+            with (
+                patch.object(run_caer_clean, "REPO_ROOT", root),
+                patch.object(run_caer_clean, "CHECKPOINT_ROOT", root / "checkpoints"),
+                patch.object(run_caer_clean, "METADATA_ROOT", root / "artifacts" / "experiments"),
+                patch.object(run_caer_clean, "REGISTRY_PATH", registry_path),
+                patch.object(run_caer_clean, "git_sha", return_value="reconcile-sha"),
+            ):
+                reconcile_completed(Namespace(run_id=run_id))
+
+            metadata_path = root / "artifacts" / "experiments" / run_id / "run_metadata.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["status"], "completed")
+            self.assertEqual(metadata["git_sha"], "original-run-sha")
+            self.assertEqual(metadata["provenance_reconciled_by_git_sha"], "reconcile-sha")
+            self.assertEqual(metadata["last_completed_epoch"], 2)
+            self.assertEqual(metadata["last_checkpoint_sha256"], sha256(output_dir / "last.pt"))
+            self.assertEqual(set(metadata["detector_hashes"]), {"train.txt", "val.txt"})
+
+            with registry_path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["val_macro_f1"], "0.75")
+            self.assertEqual(rows[0]["effective_config_sha256"], sha256(output_dir / "config.json"))
+            self.assertEqual(rows[0]["manifest_sha256"], metadata["manifest_sha256"])
+            self.assertEqual(rows[0]["checkpoint_sha256"], sha256(output_dir / "best.pt"))
+            self.assertEqual(
+                json.loads(rows[0]["detector_hashes"]),
+                metadata["detector_hashes"],
+            )
+            self.assertEqual(rows[0]["test_accuracy"], "")
+            self.assertEqual(rows[0]["test_macro_f1"], "")
 
 
 if __name__ == "__main__":

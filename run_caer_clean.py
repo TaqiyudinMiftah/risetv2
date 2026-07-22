@@ -8,6 +8,7 @@ import csv
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import subprocess
@@ -133,6 +134,69 @@ def repository_relative(path: Path) -> str:
         return str(path.resolve().relative_to(REPO_ROOT.resolve()))
     except ValueError as error:
         raise ValueError(f"Path must be inside the repository: {path}") from error
+
+
+def protocol_detector_hashes(manifest_path: Path) -> dict[str, str]:
+    """Hash the generated train/validation detector artifacts only.
+
+    The clean in-repository loader consumes bounding boxes embedded in the
+    manifest, but the protocol still requires provenance for the generated
+    detector artifacts.  Test remains locked here: this helper deliberately
+    neither opens nor hashes ``test.txt``.
+    """
+    protocol_dir = manifest_path.parent
+    detector_paths = {
+        name: protocol_dir / name
+        for name in ("train.txt", "val.txt")
+    }
+    missing = [str(path) for path in detector_paths.values() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Generated protocol detector files are missing: {missing}")
+    return {name: sha256(path) for name, path in detector_paths.items()}
+
+
+def runtime_provenance(output_dir: Path, manifest_path: Path) -> dict[str, Any]:
+    """Return hashes for the frozen effective config and non-test protocol inputs."""
+    effective_config = output_dir / "config.json"
+    if not effective_config.is_file():
+        raise FileNotFoundError(f"Frozen runtime config not found: {effective_config}")
+    return {
+        "effective_config": repository_relative(effective_config),
+        "effective_config_sha256": sha256(effective_config),
+        "detector_hashes": protocol_detector_hashes(manifest_path),
+    }
+
+
+def completed_run_provenance(
+    output_dir: Path,
+    manifest_path: Path,
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Derive immutable completed-run facts from frozen local artifacts."""
+    if not history:
+        raise ValueError("Completed run history is empty.")
+    try:
+        epochs = [int(row["epoch"]) for row in history]
+        best_row = max(history, key=lambda row: float(row["val_macro_f1"]))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Completed run history is malformed.") from error
+    if epochs != list(range(1, len(history) + 1)):
+        raise ValueError("Completed run history must be contiguous from epoch 1.")
+
+    best_path = output_dir / "best.pt"
+    last_path = output_dir / "last.pt"
+    missing = [str(path) for path in (best_path, last_path) if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Completed run checkpoint artifacts are missing: {missing}")
+    return {
+        "checkpoint": repository_relative(best_path),
+        "checkpoint_sha256": sha256(best_path),
+        "best_epoch": int(best_row["epoch"]),
+        "last_checkpoint": repository_relative(last_path),
+        "last_checkpoint_sha256": sha256(last_path),
+        "last_completed_epoch": epochs[-1],
+        **runtime_provenance(output_dir, manifest_path),
+    }
 
 
 def interruption_details(checkpoint_path: Path, reason: str) -> dict[str, Any]:
@@ -289,6 +353,80 @@ def mark_interrupted(args: argparse.Namespace) -> None:
     )
 
 
+def reconcile_completed(args: argparse.Namespace) -> None:
+    """Repair completed-run provenance from its frozen validation artifacts.
+
+    This command is deliberately artifact-only: it does not construct a
+    dataset or model and it does not read the test detector file.
+    """
+    run_id = args.run_id
+    if Path(run_id).name != run_id:
+        raise ValueError("Run ID must not contain a path separator.")
+    output_dir = CHECKPOINT_ROOT / run_id
+    metadata_path = METADATA_ROOT / run_id / "run_metadata.json"
+    if not metadata_path.is_file():
+        raise FileNotFoundError(f"Run metadata not found: {metadata_path}")
+    metadata = load_json(metadata_path)
+    if metadata.get("run_id") != run_id:
+        raise ValueError("Run metadata does not match the requested run ID.")
+    if metadata.get("status") != "completed":
+        raise ValueError("Only a completed run may have its completion provenance reconciled.")
+    if metadata.get("track") != "clean_inrepo":
+        raise ValueError("Completion reconciliation is only for clean in-repository runs.")
+    if metadata.get("protocol") != "caer_s_content_disjoint_v1":
+        raise ValueError("Completion reconciliation requires caer_s_content_disjoint_v1.")
+    if metadata.get("test_used_for_selection") is not False:
+        raise ValueError("Completion reconciliation refuses runs that used test for selection.")
+
+    manifest_path = resolve_path(str(metadata["manifest"]))
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Frozen manifest not found: {manifest_path}")
+    if metadata.get("manifest_sha256") != sha256(manifest_path):
+        raise ValueError("Manifest hash does not match completed-run metadata.")
+
+    history_path = output_dir / "history.json"
+    val_metrics_path = output_dir / "val_metrics.json"
+    if not history_path.is_file() or not val_metrics_path.is_file():
+        raise FileNotFoundError("Completed run requires history.json and val_metrics.json.")
+    history = load_json(history_path)
+    if not isinstance(history, list):
+        raise ValueError("Completed run history.json must contain a list.")
+    metrics = load_json(val_metrics_path)
+    try:
+        saved_macro_f1 = float(metrics["macro_f1"])
+        float(metrics["accuracy"])
+        float(metrics["per_class"]["Neutral"]["f1"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Completed validation metrics are malformed.") from error
+
+    provenance = completed_run_provenance(output_dir, manifest_path, history)
+    best_history_metric = max(float(row["val_macro_f1"]) for row in history)
+    if not math.isclose(saved_macro_f1, best_history_metric, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError("Saved validation macro F1 does not match the selected history epoch.")
+    metadata.update(
+        {
+            **provenance,
+            "val_metrics": repository_relative(val_metrics_path),
+            "provenance_reconciled_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+            "provenance_reconciled_by_git_sha": git_sha(),
+        }
+    )
+    write_metadata(metadata)
+    update_registry(metadata, metrics)
+    print(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "status": metadata["status"],
+                "best_epoch": metadata["best_epoch"],
+                "last_completed_epoch": metadata["last_completed_epoch"],
+                "test_accessed": False,
+            },
+            indent=2,
+        )
+    )
+
+
 def update_registry(metadata: dict[str, Any], metrics: dict[str, Any] | None = None) -> None:
     with REGISTRY_PATH.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -308,6 +446,17 @@ def update_registry(metadata: dict[str, Any], metrics: dict[str, Any] | None = N
             "notes": metadata["notes"],
         }
     )
+    detector_hashes = metadata.get("detector_hashes")
+    provenance = {
+        "config_sha256": metadata.get("config_sha256", ""),
+        "effective_config_sha256": metadata.get("effective_config_sha256", ""),
+        "manifest_sha256": metadata.get("manifest_sha256", ""),
+        "detector_hashes": (
+            json.dumps(detector_hashes, sort_keys=True) if isinstance(detector_hashes, dict) else ""
+        ),
+        "checkpoint_sha256": metadata.get("checkpoint_sha256", ""),
+    }
+    row.update({key: str(value) for key, value in provenance.items() if key in row})
     if metrics is not None:
         row.update(
             {
@@ -558,6 +707,7 @@ def train(args: argparse.Namespace) -> None:
                 "accelerator": accelerator,
                 "gpu_free_mib_at_start": gpu_memory,
                 "params": params,
+                **runtime_provenance(output_dir, manifest_path),
             }
         )
         write_metadata(metadata)
@@ -580,9 +730,7 @@ def train(args: argparse.Namespace) -> None:
         metadata.update(
             {
                 "status": "completed",
-                "checkpoint": str(trainer.best_path.relative_to(REPO_ROOT)),
-                "checkpoint_sha256": sha256(trainer.best_path),
-                "best_epoch": int(max(history, key=lambda row: row["val_macro_f1"])["epoch"]),
+                **completed_run_provenance(output_dir, manifest_path, history),
                 "val_metrics": str((output_dir / "val_metrics.json").relative_to(REPO_ROOT)),
                 "finished_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
             }
@@ -654,6 +802,13 @@ def build_parser() -> argparse.ArgumentParser:
     interrupted_parser.add_argument("--run-id", required=True)
     interrupted_parser.add_argument("--reason", required=True)
     interrupted_parser.set_defaults(func=mark_interrupted)
+
+    reconcile_parser = subparsers.add_parser(
+        "reconcile-completed",
+        help="Reconcile a completed clean run from frozen validation-only artifacts.",
+    )
+    reconcile_parser.add_argument("--run-id", required=True)
+    reconcile_parser.set_defaults(func=reconcile_completed)
     return parser
 
 

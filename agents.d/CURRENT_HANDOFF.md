@@ -1,15 +1,17 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-22 05:24 UTC. Live process state can change after this
+Last updated: 2026-07-22 07:18 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
 
 The research goal is CD-ICA-Net for CAER-S: iterative bidirectional
 face-context interaction followed by post-interaction debiasing and adaptive or
-gated fusion. The immediate work is still **Experiment 1 / clean in-repository
-CAER-Net exploratory seed 42**. Do not implement cross-attention, CCIM, or
-CD-ICA-Net until this clean baseline passes its pre-registered validation gate.
+gated fusion. The clean in-repository CAER-Net exploratory seed-42 run has
+completed and passed its pre-registered validation gate. The clean CAER-Net
+final seed-42/43/44 configurations are frozen and verified; their three-run
+compute allocation awaits explicit launch authorization. Do not implement
+cross-attention, CCIM, or CD-ICA-Net before the clean final baseline is frozen.
 
 Read these files before changing experiments:
 
@@ -95,108 +97,101 @@ The clean `caer_research.models.CAERNet` is an exact upstream architecture port
 with 2,390,028 parameters. Checkpoint parity previously produced maximum logit
 difference `0.0`; see `reports/phase1_clean_inrepo_refactor.md`.
 
-## Active Clean Run
+## Completed Clean Exploratory Run
 
-- tmux session: `caer-clean-s42-rocm`
-- run ID: `caernet__clean_inrepo__seed42__20260722_043253`
-- config:
-  `configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json`
-- config SHA-256:
-  `366cc043467bf2d3588edd15138b2f0907385ca917a106382fa0248c7d69d833`
-- output: `checkpoints/caernet__clean_inrepo__seed42__20260722_043253/`
-- metadata:
-  `artifacts/experiments/caernet__clean_inrepo__seed42__20260722_043253/run_metadata.json`
-- launcher log:
-  `artifacts/launch_logs/caernet__clean_inrepo__seed42__20260722_043253.log`
-- W&B: offline.
-- Hardware: one RX 6600; global batch 128; FP32.
+- Run ID: `caernet__clean_inrepo__seed42__20260722_043253`.
+- Config:
+  `configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json`.
+- Output: `checkpoints/caernet__clean_inrepo__seed42__20260722_043253/`.
+- Metadata:
+  `artifacts/experiments/caernet__clean_inrepo__seed42__20260722_043253/run_metadata.json`.
+- W&B: offline; one RX 6600; global batch 128; FP32.
 - Optimizer: SGD, LR 0.01, momentum 0.9, Nesterov, no weight decay.
 - Scheduler: StepLR, step 15, gamma 0.5.
 - Budget: 45 epochs; early-stopping patience 12.
 - Selection: maximum validation macro F1.
+- Completed: `2026-07-22T06:32:46+00:00`; 45 contiguous epochs; best epoch 42.
+- Metadata status: `completed`; `test_used_for_selection: false`.
+- Live check at handoff update: no tmux server; RX 6600 device 0 idle.
 
-The run was intentionally interrupted after epoch 13 and is not completed.
-The saved `last.pt` is an end-of-epoch checkpoint with history for epochs 1--13,
-best validation macro F1 `0.577346` at epoch 8, and early-stopping count 5.
-Its SHA-256 is
-`56848a54ed329fe7468aeceac8c12ed9713c60ec731afc94e107a4a55997b832`.
-The `best.pt` SHA-256 is
-`7b69aa5535934443afe1b82ece01602bd9b42df6d3f67991130681722eaf2df8`.
-One resume initialization attempt failed before epoch 14 because its CPU RNG
-payload had been mapped to CUDA. The corrected launcher now restores training
-state from CPU first; a GPU restore preflight verified `next_epoch: 14`, the
-same best metric, history length, early-stopping count, and optimizer tensors on
-`cuda:0`. The metadata retains the failed setup event as recovery provenance.
-This is historical observation, not proof of a current process state.
+The run was intentionally interrupted after epoch 13. One resume initialization
+attempt failed before epoch 14 because its CPU RNG payload had been mapped to
+CUDA; the corrected launcher restores it from CPU first. The successful resume
+event is retained as recovery provenance. The resumed training reached epoch
+45; it was not restarted under a duplicate run ID.
 
-Verify before launching anything:
+The original training Git SHA remains
+`203ae652c34625ae67a1f0243e0cef9ac78144e9`. The successful resume event
+records later Git SHA `4b37fe859b48c4c2a980d4b8b0ed1eb77e998cf8`; do not
+relabel the original run with it.
 
-```bash
-cd /home/taqiyudinmiftah/riset/risetv2
-tmux list-sessions
-tail -n 30 checkpoints/caernet__clean_inrepo__seed42__20260722_043253/train.log
-tail -n 30 artifacts/launch_logs/caernet__clean_inrepo__seed42__20260722_043253.log
-sed -n '1,240p' artifacts/experiments/caernet__clean_inrepo__seed42__20260722_043253/run_metadata.json
-rocm-smi --showuse --showmeminfo vram
-```
+### Completed-Artifacts Provenance
 
-Do not launch a duplicate if the process is active. If tmux is absent, inspect
-`history.csv`, `best.pt`, `last.pt`, metadata status, and launcher log before
-deciding whether the run completed or was interrupted. Do not fabricate a
-completion status.
+- Source config SHA-256:
+  `366cc043467bf2d3588edd15138b2f0907385ca917a106382fa0248c7d69d833`.
+- Effective saved runtime config (`n_gpu: 1`) SHA-256:
+  `1f68ae1b23bab0f3235c7eed6c6875ca3fc5a63aa352661a80439d794ace2e16`.
+- Manifest SHA-256:
+  `f18178e2dc374a7153cf08642bcd0408264186475326bcd350a83dd4569c29ad`.
+- Train detector SHA-256:
+  `fe89efc8546f4febbaf9bf71566b3b37da84e0ab34314effd2be3e176eacea82`.
+- Validation detector SHA-256:
+  `85372913838eef0b8123ad86a8b10388175c4952835ea6f44e28f7c3fcadf2f1`.
+- Best checkpoint SHA-256:
+  `b89d7df50b4a4a22b79eaf4e02753ac3696e50accb547d12bc004cf02b43f6ab`.
+- Final `last.pt` SHA-256:
+  `4fb228b35ec4c7b1bc5e8ae9a1ace5c3991d3b02692aa3069a438ce1c1ae2453`.
 
-The clean launcher now has a guarded state-resume path. It accepts only the
-same run's `checkpoints/<run_id>/last.pt`, verifies the source config hash,
-effective runtime config (including the one-GPU override), manifest hash,
-protocol, seed, contiguous history, and model/optimizer/scheduler/RNG/DataLoader
-generator state. It preserves the original run provenance and records every
-resume event. A CPU split-vs-uninterrupted trajectory test covers the checkpoint
-contract; ROCm execution remains deterministic-state resume rather than a claim
-of bitwise ROCm determinism.
+### Saved Validation Result
 
-For the intentionally interrupted run, first verify no tmux trainer or GPU
-process is active, then correct the stale runtime status:
+| Metric | Result |
+| --- | ---: |
+| Samples | 6,965 |
+| Accuracy | 0.755779 |
+| Macro F1 | 0.756515 |
+| Weighted F1 | 0.758022 |
+| Neutral F1 | 0.564175 |
+| NLL / loss | 1.340341 |
+| ECE (15 bins) | 0.174815 |
 
-```bash
-.venv/bin/python run_caer_clean.py mark-interrupted \
-  --run-id caernet__clean_inrepo__seed42__20260722_043253 \
-  --reason "operator-requested interruption after epoch 13"
-```
+Per-class F1 is Anger `0.741750`, Disgust `0.867683`, Fear `0.928291`, Happy
+`0.693790`, Neutral `0.564175`, Sad `0.772384`, and Surprise `0.727532`.
 
-Then resume exactly that run, never `best.pt` and never a new run ID:
+The saved `val_predictions.csv` has 6,965 validation rows (plus header). The
+word `test` may appear in an image path because logical validation is stored
+under physical `CAER-S/test/`; it does not make this logical-test evaluation.
 
-```bash
-HSA_OVERRIDE_GFX_VERSION=10.3.0 ROCR_VISIBLE_DEVICES=0 \
-  .venv/bin/python run_caer_clean.py train \
-  --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
-  --seed 42 --device 0 --n-gpu 1 --wandb-mode offline \
-  --resume checkpoints/caernet__clean_inrepo__seed42__20260722_043253/last.pt
-```
+### Fresh Validation-Only Reproduction
 
-`--run-id`, if supplied, must match the run ID encoded in `last.pt`'s parent
-directory. `KeyboardInterrupt` is recorded as `interrupted` with the latest
-valid checkpoint instead of leaving metadata falsely `running`.
+A fresh Python process loaded `best.pt` and constructed only the logical `val`
+dataloader. It exactly reproduced the saved validation metrics and predictions:
+maximum metric delta `0.0`, prediction mismatches `0`, and maximum confidence
+delta `0.0`. It did not load the logical test split, logical-test images, or
+batches and did not produce test metrics or predictions (`test_accessed: false`,
+`test_split_loaded: false`, `test_images_loaded: false`). The ignored record is:
+
+`artifacts/experiments/caernet__clean_inrepo__seed42__20260722_043253/validation_reproduction.json`
+
+See `reports/experiment1_clean_inrepo_exploratory_seed42.md` for the full,
+clean-track-only result report.
 
 ## Acceptance Gate and Next Work
 
-After the clean run ends:
+The exploratory acceptance gate **passed**: validation macro F1 is `0.756515`
+(`>= 0.70`), artifact hashes were checked, the validation-only fresh-process
+reproduction is exact, and no logical-test evaluation occurred. The registry
+test columns remain empty.
 
-1. Confirm metadata status is `completed` and inspect `val_metrics.json`,
-   `val_predictions.csv`, `history.csv`, and `best.pt`.
-2. Reload `best.pt` in a fresh Python process and reproduce the saved full
-   validation metrics and predictions.
-3. Verify config, manifest, checkpoint, and detector hashes.
-4. Pass the exploratory gate only if validation macro F1 is at least `0.70`.
-5. Update `experiments/registry.csv` and a clean-baseline result report, then
-   commit and push.
-6. If the gate passes, freeze clean CAER-Net final configs for seeds 42, 43,
-   and 44. Keep this track separate from upstream-community results.
-7. Only after the clean baseline is frozen, implement Experiment 2 input
-   ablations: face-only, context-only, and face+context under the same protocol.
+Next work:
 
-If macro F1 is below `0.70`, stop and audit preprocessing, labels, bbox/crop,
-transforms, optimizer behavior, and validation evaluation. Do not tune against
-test and do not proceed directly to interaction/debiasing models.
+1. The clean CAER-Net final configs for seeds 42, 43, and 44 are frozen and
+   verified. Retain this track separately from upstream-community results.
+2. Obtain or confirm authorization before allocating the final three-seed
+   training compute. Do not duplicate the completed exploratory run.
+3. After the clean final baseline is frozen, start Experiment 2 input ablations
+   (face-only, context-only, face+context) under the same protocol.
+4. Keep the logical test split locked until a final candidate and evaluation
+   protocol are frozen.
 
 ## Verified Commands
 
@@ -210,6 +205,7 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 \
   --seed 42 --device 0 --n-gpu 1 --wandb-mode disabled --smoke-only
 ```
 
-The target server passed all 34 unit tests and the smoke forward with face
-shape `[128, 3, 96, 96]`, context shape `[128, 3, 112, 112]`, logits shape
-`[128, 7]`, and `test_accessed: false`.
+The target server passed the resume-regression suite and the smoke forward with
+face shape `[128, 3, 96, 96]`, context shape `[128, 3, 112, 112]`, logits shape
+`[128, 7]`, and `test_accessed: false`. Re-run the suite after any code change
+before launching subsequent training.

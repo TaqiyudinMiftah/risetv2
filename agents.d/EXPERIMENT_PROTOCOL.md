@@ -82,12 +82,15 @@ Each run saves:
 Minimum columns:
 
 ```text
-run_id,status,model,variant,seed,git_sha,config,checkpoint,
+run_id,status,model,variant,seed,git_sha,config,config_sha256,
+effective_config_sha256,manifest_sha256,detector_hashes,checkpoint,checkpoint_sha256,
 val_accuracy,val_macro_f1,test_accuracy,test_macro_f1,
 neutral_f1,params,latency_ms,notes
 ```
 
-Test columns remain empty until final evaluation.
+Test columns remain empty until final evaluation. For clean in-repository runs,
+`detector_hashes` records only generated artifacts used for optimization or
+validation while test is locked.
 
 ## Statistical Protocol
 

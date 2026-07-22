@@ -39,7 +39,12 @@ REGISTRY_COLUMNS = [
     "seed",
     "git_sha",
     "config",
+    "config_sha256",
+    "effective_config_sha256",
+    "manifest_sha256",
+    "detector_hashes",
     "checkpoint",
+    "checkpoint_sha256",
     "val_accuracy",
     "val_macro_f1",
     "test_accuracy",
@@ -305,6 +310,20 @@ def _update_registry(metadata: dict[str, Any], **updates: Any) -> None:
             "git_sha": metadata["git_sha"],
             "config": metadata["config"],
             "notes": metadata.get("notes", ""),
+        }
+    )
+    detector_hashes = metadata.get("detector_hashes")
+    row.update(
+        {
+            "config_sha256": str(metadata.get("config_sha256", "")),
+            "effective_config_sha256": str(metadata.get("generated_config_sha256", "")),
+            "manifest_sha256": str(metadata.get("manifest_hash", "")),
+            "detector_hashes": (
+                json.dumps(detector_hashes, sort_keys=True)
+                if isinstance(detector_hashes, dict)
+                else ""
+            ),
+            "checkpoint_sha256": str(metadata.get("checkpoint_sha256", "")),
         }
     )
     row.update({key: str(value) for key, value in updates.items() if value is not None})

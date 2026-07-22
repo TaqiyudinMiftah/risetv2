@@ -112,6 +112,10 @@ class OfficialExperimentLauncherTests(unittest.TestCase):
                 "git_sha": "abc123",
                 "variant": "caer_s_content_disjoint_v1",
                 "config": "configs/seed42.json",
+                "config_sha256": "source-config-hash",
+                "generated_config_sha256": "effective-config-hash",
+                "manifest_hash": "manifest-hash",
+                "detector_hashes": {"train.txt": "train-hash", "val.txt": "val-hash"},
                 "notes": "exploratory",
             }
             with patch.object(run_caer_official, "EXPERIMENT_REGISTRY", registry):
@@ -128,6 +132,13 @@ class OfficialExperimentLauncherTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["status"], "completed")
             self.assertEqual(rows[0]["val_accuracy"], "0.75")
+            self.assertEqual(rows[0]["config_sha256"], "source-config-hash")
+            self.assertEqual(rows[0]["effective_config_sha256"], "effective-config-hash")
+            self.assertEqual(rows[0]["manifest_sha256"], "manifest-hash")
+            self.assertEqual(
+                json.loads(rows[0]["detector_hashes"]),
+                {"train.txt": "train-hash", "val.txt": "val-hash"},
+            )
 
     def test_training_progress_distinguishes_interruption_from_early_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
