@@ -14,6 +14,7 @@ import torch
 import run_caer_clean
 from caer_research.checkpointing import training_checkpoint
 from run_caer_clean import (
+    clean_run_notes,
     completed_run_provenance,
     make_run_id,
     mark_interrupted,
@@ -140,6 +141,12 @@ class CleanTrainingLauncherTests(unittest.TestCase):
         self.assertEqual(config["trainer"]["monitor"], "macro_f1")
         self.assertFalse(config["trainer"]["use_amp"])
         self.assertFalse(config["research"]["test_during_training"])
+
+    def test_clean_run_notes_distinguish_final_from_exploratory(self) -> None:
+        self.assertTrue(clean_run_notes("exploratory").startswith("Exploratory"))
+        self.assertTrue(clean_run_notes("final").startswith("Final"))
+        with self.assertRaisesRegex(ValueError, "Unsupported"):
+            clean_run_notes("draft")
 
     def test_run_id_identifies_clean_track_and_seed(self) -> None:
         run_id = make_run_id(42)

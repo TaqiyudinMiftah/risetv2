@@ -122,6 +122,15 @@ def validate_config(config: dict[str, Any], expected_seed: int) -> None:
         raise ValueError("Clean in-repo checkpoint selection must use validation macro F1.")
     if config["model"]["type"] != "CAERNet":
         raise ValueError(f"Unsupported model type: {config['model']['type']}")
+    if research.get("stage") not in {"exploratory", "final"}:
+        raise ValueError("Clean experiments must declare research.stage as exploratory or final.")
+
+
+def clean_run_notes(stage: str) -> str:
+    """Return an explicit status note without conflating final and exploratory runs."""
+    if stage not in {"exploratory", "final"}:
+        raise ValueError(f"Unsupported clean research stage: {stage!r}.")
+    return f"{stage.capitalize()} clean in-repo run; test split is not loaded or evaluated."
 
 
 def resolve_path(value: str) -> Path:
@@ -556,7 +565,7 @@ def train(args: argparse.Namespace) -> None:
             "manifest": repository_relative(manifest_path),
             "manifest_sha256": sha256(manifest_path),
             "test_used_for_selection": False,
-            "notes": "Exploratory clean in-repo run; test split is not loaded or evaluated.",
+            "notes": clean_run_notes(str(config["research"]["stage"])),
             "started_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         }
         metadata_path = write_metadata(metadata)
@@ -660,7 +669,12 @@ def train(args: argparse.Namespace) -> None:
             mode=args.wandb_mode,
             dir=str(REPO_ROOT / "wandb"),
             config=config,
-            tags=["caer-net", "clean-inrepo", "exploratory", config["research"]["protocol"]],
+            tags=[
+                "caer-net",
+                "clean-inrepo",
+                str(config["research"]["stage"]),
+                config["research"]["protocol"],
+            ],
         )
 
     def log_epoch(row: dict[str, Any]) -> None:
