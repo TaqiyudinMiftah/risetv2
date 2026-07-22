@@ -12,6 +12,8 @@ index_url="$1"
 python_version="${PYTHON_VERSION:-3.12}"
 torch_spec="${TORCH_SPEC:-torch}"
 torchvision_spec="${TORCHVISION_SPEC:-torchvision}"
+device_ids="${DEVICE_IDS:-0}"
+min_devices="${N_GPU:-1}"
 
 cd "$repo_root"
 command -v uv >/dev/null || {
@@ -22,4 +24,7 @@ command -v uv >/dev/null || {
 uv venv --python "$python_version"
 uv pip install --python .venv/bin/python --index-url "$index_url" "$torch_spec" "$torchvision_spec"
 uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python scripts/check_accelerator.py --require-backend rocm --min-devices 1
+ROCR_VISIBLE_DEVICES="$device_ids" \
+    .venv/bin/python scripts/check_accelerator.py \
+    --require-backend rocm \
+    --min-devices "$min_devices"

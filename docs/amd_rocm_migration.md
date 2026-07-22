@@ -48,6 +48,7 @@ workaround rather than official hardware support:
 
 ```bash
 HSA_OVERRIDE_GFX_VERSION=10.3.0 \
+DEVICE_IDS=0 N_GPU=1 \
 TORCH_SPEC='torch==2.5.1' \
 TORCHVISION_SPEC='torchvision==0.20.1' \
 scripts/bootstrap_rocm_env.sh https://download.pytorch.org/whl/rocm6.2
