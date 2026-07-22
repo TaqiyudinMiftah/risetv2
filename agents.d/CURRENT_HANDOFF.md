@@ -1,6 +1,6 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-22 05:20 UTC. Live process state can change after this
+Last updated: 2026-07-22 05:24 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
@@ -122,6 +122,11 @@ Its SHA-256 is
 `56848a54ed329fe7468aeceac8c12ed9713c60ec731afc94e107a4a55997b832`.
 The `best.pt` SHA-256 is
 `7b69aa5535934443afe1b82ece01602bd9b42df6d3f67991130681722eaf2df8`.
+One resume initialization attempt failed before epoch 14 because its CPU RNG
+payload had been mapped to CUDA. The corrected launcher now restores training
+state from CPU first; a GPU restore preflight verified `next_epoch: 14`, the
+same best metric, history length, early-stopping count, and optimizer tensors on
+`cuda:0`. The metadata retains the failed setup event as recovery provenance.
 This is historical observation, not proof of a current process state.
 
 Verify before launching anything:

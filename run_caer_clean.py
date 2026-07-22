@@ -255,12 +255,24 @@ def mark_interrupted(args: argparse.Namespace) -> None:
     metadata = load_json(metadata_path)
     if metadata.get("run_id") != run_id:
         raise ValueError("Run metadata does not match the requested run ID.")
-    if metadata.get("status") != "running":
-        raise ValueError("Only a verified stale 'running' run may be marked interrupted.")
+    if metadata.get("status") not in {"running", "failed"}:
+        raise ValueError("Only a verified inactive 'running' or 'failed' run may be marked interrupted.")
     checkpoint_path = output_dir / "last.pt"
     if not checkpoint_path.is_file():
         raise FileNotFoundError("Cannot mark a run resumable without checkpoints/<run_id>/last.pt.")
 
+    if metadata.get("status") == "failed":
+        previous_failure = {
+            key: metadata[key]
+            for key in ("error", "finished_at_utc")
+            if key in metadata
+        }
+        if previous_failure:
+            recoveries = list(metadata.get("recovery_events", []))
+            recoveries.append(previous_failure)
+            metadata["recovery_events"] = recoveries
+        metadata.pop("error", None)
+        metadata.pop("finished_at_utc", None)
     metadata.update({"status": "interrupted", **interruption_details(checkpoint_path, args.reason)})
     write_metadata(metadata)
     update_registry(metadata)

@@ -4,12 +4,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
-from caer_research.checkpointing import load_model_checkpoint
+from caer_research.checkpointing import load_checkpoint_payload, load_model_checkpoint
 from caer_research.data import CAERSTwoStreamDataset, load_manifest
 from caer_research.engine import extract_logits
 from caer_research.metrics import classification_metrics
@@ -243,8 +244,13 @@ class CleanInRepoTests(unittest.TestCase):
                 epochs=2,
                 train_generator=torch.Generator().manual_seed(42),
             )
-            with self.assertRaisesRegex(ValueError, "DataLoader generator state"):
-                target.resume(invalid_checkpoint)
+            with patch(
+                "caer_research.trainer.load_checkpoint_payload",
+                wraps=load_checkpoint_payload,
+            ) as load_checkpoint:
+                with self.assertRaisesRegex(ValueError, "DataLoader generator state"):
+                    target.resume(invalid_checkpoint)
+            self.assertEqual(load_checkpoint.call_args.kwargs["map_location"], "cpu")
 
 
 if __name__ == "__main__":

@@ -74,7 +74,11 @@ class Trainer:
         self.history: list[dict[str, Any]] = []
 
     def resume(self, checkpoint_path: Path | str) -> None:
-        checkpoint = load_checkpoint_payload(checkpoint_path, map_location=self.device)
+        # Keep RNG payloads on CPU. Mapping the whole checkpoint to CUDA would
+        # turn ``torch_cpu`` RNG state into a CUDA tensor, which torch.set_rng_state
+        # correctly rejects. load_state_dict moves model/optimizer tensors to their
+        # parameter devices as needed after this point.
+        checkpoint = load_checkpoint_payload(checkpoint_path, map_location="cpu")
         unwrap_model(self.model).load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if self.scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
