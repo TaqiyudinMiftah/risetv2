@@ -84,6 +84,7 @@ def accelerator_snapshot(value: str, requested_count: int) -> dict[str, Any]:
         "backend": backend,
         "runtime_version": str(runtime_version),
         "torch_version": torch.__version__,
+        "hsa_override_gfx_version": os.environ.get("HSA_OVERRIDE_GFX_VERSION"),
         "visible_device_count": visible_count,
         "devices": devices,
     }

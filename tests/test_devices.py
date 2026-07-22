@@ -44,6 +44,7 @@ class AcceleratorDeviceTests(unittest.TestCase):
             snapshot = devices.accelerator_snapshot("2,3", requested_count=2)
 
         self.assertEqual(snapshot["backend"], "rocm")
+        self.assertIsNone(snapshot["hsa_override_gfx_version"])
         self.assertEqual(snapshot["devices"][0]["requested_index"], 2)
         self.assertEqual(snapshot["devices"][0]["logical_index"], 0)
         self.assertEqual(snapshot["devices"][1]["memory_free_mib"], 7)

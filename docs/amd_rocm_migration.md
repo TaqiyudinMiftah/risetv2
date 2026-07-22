@@ -37,6 +37,22 @@ scripts/bootstrap_rocm_env.sh <compatible-pytorch-rocm-index-url>
 The bootstrap creates `.venv`, installs the selected ROCm build before the
 general dependencies, and runs a GPU matrix-multiplication check.
 
+### Current Target Profile
+
+The target `labkc2-ThinkCentre-M75t-Gen-5` has ROCm 7.2.1, an RX 6600 LE
+(`gfx1032`, 8 GB), and an integrated `gfx1103` GPU with only 2 GB. Use device 0
+only. The RX 6600 is outside the current officially supported Radeon list. The
+following compatibility setup was verified with matrix multiplication and a
+Conv2d/BatchNorm backward pass, but must be reported as an environment
+workaround rather than official hardware support:
+
+```bash
+HSA_OVERRIDE_GFX_VERSION=10.3.0 \
+TORCH_SPEC='torch==2.5.1' \
+TORCHVISION_SPEC='torchvision==0.20.1' \
+scripts/bootstrap_rocm_env.sh https://download.pytorch.org/whl/rocm6.2
+```
+
 ## Copy Runtime State
 
 From the source machine, after SSH connectivity is available:
@@ -59,7 +75,7 @@ multiple compatible AMD GPUs.
 .venv/bin/python run_caer_clean.py train \
   --config configs/experiments/caernet_clean_content_disjoint_exploratory_seed42.json \
   --seed 42 --device 0 --n-gpu 1 --wandb-mode offline --smoke-only
-DEVICE_IDS=0 N_GPU=1 scripts/launch_clean_tmux.sh
+HSA_OVERRIDE_GFX_VERSION=10.3.0 DEVICE_IDS=0 N_GPU=1 scripts/launch_clean_tmux.sh
 ```
 
 Monitor the detached run with `tmux attach -t caer-clean-s42` or tail the path
