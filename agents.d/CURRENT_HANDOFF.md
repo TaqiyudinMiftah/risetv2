@@ -1,6 +1,6 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-22 07:18 UTC. Live process state can change after this
+Last updated: 2026-07-22 07:23 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
@@ -35,7 +35,9 @@ Read these files before changing experiments:
 
 Before pulling, inspect `git status`. The trainer updates
 `experiments/registry.csv`; preserve that runtime update and never reset other
-user changes. All code/document changes must be committed and pushed to GitHub.
+user changes. The Acceptance Gate implementation is committed and pushed as
+`25d05f5fc7339332c84e857849909e56b064f201`. All later code/document changes
+must also be committed and pushed to GitHub.
 
 ## AMD ROCm Environment
 
