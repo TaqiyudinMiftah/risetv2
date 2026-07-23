@@ -18,11 +18,23 @@ def extract_logits(output: Any) -> torch.Tensor:
     raise TypeError("Model output must be logits tensor or a dict containing 'logits'.")
 
 
-def move_batch(batch: dict[str, Any], device: torch.device) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def move_batch(
+    batch: dict[str, Any], device: torch.device
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor]:
+    """Move only the modality tensors present in a frozen dataset batch."""
+
     non_blocking = device.type == "cuda"
+    face = batch.get("face")
+    context = batch.get("context")
+    if face is None and context is None:
+        raise ValueError("Batch must contain at least one of 'face' or 'context'.")
+    if face is not None and not isinstance(face, torch.Tensor):
+        raise TypeError("Batch field 'face' must be a tensor when present.")
+    if context is not None and not isinstance(context, torch.Tensor):
+        raise TypeError("Batch field 'context' must be a tensor when present.")
     return (
-        batch["face"].to(device, non_blocking=non_blocking),
-        batch["context"].to(device, non_blocking=non_blocking),
+        face.to(device, non_blocking=non_blocking) if face is not None else None,
+        context.to(device, non_blocking=non_blocking) if context is not None else None,
         batch["label"].to(device, non_blocking=non_blocking),
     )
 

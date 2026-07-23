@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import torch
+from PIL import Image
+
 import verify_clean_validation as verifier
+from caer_research.models import CAERNetSingleStream
 
 
 class ValidationOnlyVerifierTests(unittest.TestCase):
@@ -100,6 +105,76 @@ class ValidationOnlyVerifierTests(unittest.TestCase):
                 {"status": "completed", "test_used_for_selection": True},
                 config,
             )
+
+    def test_validation_reproduction_supports_a_strict_single_stream_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            image_path = root / "CAER-S" / "val" / "Anger" / "sample.png"
+            image_path.parent.mkdir(parents=True)
+            Image.new("RGB", (160, 128), color=(128, 128, 128)).save(image_path)
+            manifest_path = root / "manifest.jsonl"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": "logical-val-sample",
+                        "image_path": "val/Anger/sample.png",
+                        "label": "Anger",
+                        "split": "val",
+                        "face_bbox": [20, 20, 100, 100],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            checkpoint_path = root / "single-stream.pt"
+            source_model = CAERNetSingleStream(modality="face")
+            torch.save({"model_state_dict": source_model.state_dict()}, checkpoint_path)
+            config = {
+                "data": {
+                    "dataset_root": "CAER-S",
+                    "manifest": "manifest.jsonl",
+                    "modalities": ["face"],
+                    "batch_size": 1,
+                },
+                "model": {"type": "CAERNetSingleStream", "args": {"modality": "face"}},
+            }
+
+            result, dataset = verifier.reproduce_validation(
+                config,
+                checkpoint_path,
+                root,
+                torch.device("cpu"),
+            )
+
+        self.assertEqual(dataset.split, "val")
+        self.assertEqual(dataset.modalities, ("face",))
+        self.assertEqual(len(dataset), 1)
+        self.assertEqual(result["samples"], 1)
+
+    def test_validation_reproduction_rejects_mismatched_frozen_data_modalities(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = root / "manifest.jsonl"
+            dataset_root = root / "CAER-S"
+            checkpoint_path = root / "single-stream.pt"
+            manifest_path.write_text("", encoding="utf-8")
+            dataset_root.mkdir()
+            torch.save(
+                {"model_state_dict": CAERNetSingleStream(modality="face").state_dict()},
+                checkpoint_path,
+            )
+            config = {
+                "data": {
+                    "dataset_root": "CAER-S",
+                    "manifest": "manifest.jsonl",
+                    "modalities": ["context"],
+                    "batch_size": 1,
+                },
+                "model": {"type": "CAERNetSingleStream", "args": {"modality": "face"}},
+            }
+
+            with self.assertRaisesRegex(ValueError, "modalities do not match"):
+                verifier.reproduce_validation(config, checkpoint_path, root, torch.device("cpu"))
 
 
 if __name__ == "__main__":

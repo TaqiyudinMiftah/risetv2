@@ -21,9 +21,9 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from caer_research.checkpointing import load_model_checkpoint
-from caer_research.data import CAERSTwoStreamDataset, build_transforms
+from caer_research.data import CAERSTwoStreamDataset, build_transforms, normalize_modalities
 from caer_research.engine import evaluate
-from caer_research.models import CAERNet
+from caer_research.models import build_model, required_modalities
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -239,6 +239,13 @@ def reproduce_validation(
     model_args = model_config.get("args")
     if not isinstance(model_args, Mapping):
         raise ValueError("Frozen runtime config is missing model arguments.")
+    modalities = required_modalities(model_config)
+    configured_modalities = normalize_modalities(data_config.get("modalities"))
+    if configured_modalities != modalities:
+        raise ValueError(
+            "Frozen data modalities do not match the model's strict input contract: "
+            f"expected {modalities!r}, got {configured_modalities!r}."
+        )
 
     face_transform, context_transform = build_transforms(train=False)
     validation_dataset = CAERSTwoStreamDataset(
@@ -247,6 +254,7 @@ def reproduce_validation(
         split=VALIDATION_SPLIT,
         face_transform=face_transform,
         context_transform=context_transform,
+        modalities=modalities,
     )
     assert_logical_validation_only(validation_dataset)
     validation_loader = DataLoader(
@@ -257,7 +265,7 @@ def reproduce_validation(
         pin_memory=device.type == "cuda",
     )
 
-    model = CAERNet(**dict(model_args))
+    model = build_model(model_config)
     load_model_checkpoint(model, checkpoint_path, map_location="cpu")
     model.to(device)
     result = evaluate(model, validation_loader, nn.CrossEntropyLoss(), device, use_amp=False)

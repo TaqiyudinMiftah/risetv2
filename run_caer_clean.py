@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import random
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -23,14 +24,14 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from caer_research.checkpointing import load_checkpoint_payload, load_model_checkpoint
-from caer_research.data import CAERSTwoStreamDataset, build_transforms
+from caer_research.data import CAERSTwoStreamDataset, build_transforms, normalize_modalities
 from caer_research.devices import (
     accelerator_snapshot,
     configure_visible_devices,
     parse_device_ids,
 )
 from caer_research.engine import evaluate
-from caer_research.models import CAERNet
+from caer_research.models import build_model, model_args, model_type, required_modalities
 from caer_research.trainer import Trainer
 
 
@@ -93,9 +94,15 @@ def seed_worker(worker_id: int) -> None:
     np.random.seed(worker_seed)
 
 
-def make_run_id(seed: int) -> str:
+def make_run_id(seed: int, variant: str | None = None) -> str:
+    """Create a protocol-conforming run ID without path-like config text."""
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"caernet__clean_inrepo__seed{seed}__{timestamp}"
+    if variant is None:
+        return f"caernet__clean_inrepo__seed{seed}__{timestamp}"
+    if re.fullmatch(r"[a-z0-9_]+", variant) is None:
+        raise ValueError(f"Run variant must use lowercase letters, digits, and underscores: {variant!r}.")
+    return f"caernet__{variant}__seed{seed}__{timestamp}"
 
 
 def setup_logger(log_path: Path) -> logging.Logger:
@@ -110,27 +117,89 @@ def setup_logger(log_path: Path) -> logging.Logger:
     return logger
 
 
+def experiment_variant(research: dict[str, Any]) -> str | None:
+    """Return the frozen variant label, if this is a non-baseline experiment."""
+
+    value = research.get("variant")
+    if value is None:
+        return None
+    if not isinstance(value, str) or re.fullmatch(r"[a-z0-9_]+", value) is None:
+        raise ValueError("research.variant must use lowercase letters, digits, and underscores.")
+    return value
+
+
+def run_id_variant(research: dict[str, Any]) -> str | None:
+    """Include the experiment stage in non-baseline generated run IDs."""
+
+    variant = experiment_variant(research)
+    return None if variant is None else f"{variant}_{research['stage']}"
+
+
 def validate_config(config: dict[str, Any], expected_seed: int) -> None:
     if int(config["seed"]) != expected_seed:
         raise ValueError(f"CLI seed {expected_seed} does not match config seed {config['seed']}.")
     research = config["research"]
+    if not isinstance(research, dict):
+        raise ValueError("Clean experiments must contain object-valued research metadata.")
+    if research.get("track") != "clean_inrepo":
+        raise ValueError("Clean experiments must declare research.track='clean_inrepo'.")
     if research["protocol"] != "caer_s_content_disjoint_v1":
         raise ValueError("Clean experiments must use caer_s_content_disjoint_v1.")
-    if research.get("test_during_training"):
+    if research.get("test_during_training") is not False:
         raise ValueError("Test access during training is forbidden.")
     if config["trainer"]["monitor"] != "macro_f1":
         raise ValueError("Clean in-repo checkpoint selection must use validation macro F1.")
-    if config["model"]["type"] != "CAERNet":
-        raise ValueError(f"Unsupported model type: {config['model']['type']}")
     if research.get("stage") not in {"exploratory", "final"}:
         raise ValueError("Clean experiments must declare research.stage as exploratory or final.")
+    model_config = config.get("model")
+    data_config = config.get("data")
+    if not isinstance(model_config, dict) or not isinstance(data_config, dict):
+        raise ValueError("Clean experiments must contain object-valued model and data settings.")
+
+    configured_model_type = model_type(model_config)
+    configured_model_args = model_args(model_config)
+    expected_modalities = required_modalities(model_config)
+    configured_modalities = normalize_modalities(data_config.get("modalities"))
+    if configured_modalities != expected_modalities:
+        raise ValueError(
+            "Configured dataset modalities do not match the model's strict input contract: "
+            f"expected {expected_modalities!r}, got {configured_modalities!r}."
+        )
+
+    experiment = research.get("experiment", "caernet_reproduction")
+    variant = experiment_variant(research)
+    if configured_model_type == "CAERNet":
+        if experiment != "caernet_reproduction" or variant is not None:
+            raise ValueError("CAERNet is reserved here for the frozen face+context reproduction control.")
+        expected_control_args = {"use_face": True, "use_context": True, "concat": False}
+        if configured_model_args != expected_control_args:
+            raise ValueError(
+                "CAERNet must use the exact frozen face+context adaptive-fusion control args "
+                f"{expected_control_args!r}; use CAERNetSingleStream for strict input ablations."
+            )
+        return
+
+    modality = expected_modalities[0]
+    expected_variant = f"input_ablation_{modality}_only"
+    if experiment != "input_ablation" or variant != expected_variant:
+        raise ValueError(
+            "CAERNetSingleStream requires research.experiment='input_ablation' and "
+            f"research.variant={expected_variant!r}."
+        )
+    if set(configured_model_args) != {"modality"}:
+        raise ValueError("CAERNetSingleStream accepts only model.args.modality in frozen ablation configs.")
 
 
-def clean_run_notes(stage: str) -> str:
+def clean_run_notes(stage: str, variant: str | None = None) -> str:
     """Return an explicit status note without conflating final and exploratory runs."""
     if stage not in {"exploratory", "final"}:
         raise ValueError(f"Unsupported clean research stage: {stage!r}.")
-    return f"{stage.capitalize()} clean in-repo run; test split is not loaded or evaluated."
+    if variant is None:
+        return f"{stage.capitalize()} clean in-repo run; test split is not loaded or evaluated."
+    return (
+        f"{stage.capitalize()} clean in-repo {variant} run; "
+        "test split is not loaded or evaluated."
+    )
 
 
 def resolve_path(value: str) -> Path:
@@ -442,12 +511,16 @@ def update_registry(metadata: dict[str, Any], metrics: dict[str, Any] | None = N
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
     row = {field: "" for field in fieldnames}
+    registry_model = {
+        "CAERNet": "CAER-Net",
+        "CAERNetSingleStream": "CAER-Net single-stream",
+    }.get(str(metadata.get("model_type", "CAERNet")), "CAER-Net")
     row.update(
         {
             "run_id": metadata["run_id"],
             "status": metadata["status"],
-            "model": "CAER-Net",
-            "variant": "clean_inrepo_caer_s_content_disjoint_v1",
+            "model": registry_model,
+            "variant": str(metadata.get("variant", "clean_inrepo_caer_s_content_disjoint_v1")),
             "seed": str(metadata["seed"]),
             "git_sha": metadata["git_sha"],
             "config": metadata["config"],
@@ -537,6 +610,8 @@ def train(args: argparse.Namespace) -> None:
         raise FileNotFoundError("Frozen manifest and CAER-S dataset root are required.")
     if args.resume is not None and args.smoke_only:
         raise ValueError("--resume cannot be combined with --smoke-only.")
+    research = config["research"]
+    modalities = required_modalities(config["model"])
 
     resume_path: Path | None = None
     if args.resume is not None:
@@ -549,15 +624,24 @@ def train(args: argparse.Namespace) -> None:
         )
         metadata_path = METADATA_ROOT / run_id / "run_metadata.json"
     else:
-        run_id = args.run_id or make_run_id(args.seed)
+        run_id = args.run_id or make_run_id(args.seed, run_id_variant(research))
         output_dir = CHECKPOINT_ROOT / run_id
+        metadata_directory = METADATA_ROOT / run_id
+        if output_dir.exists() or metadata_directory.exists():
+            raise FileExistsError(
+                f"Run ID {run_id!r} already has checkpoint or metadata artifacts; use --resume if it was interrupted."
+            )
         metadata = {
             "run_id": run_id,
             "status": "prepared",
             "seed": args.seed,
-            "stage": config["research"]["stage"],
-            "track": "clean_inrepo",
-            "protocol": config["research"]["protocol"],
+            "stage": research["stage"],
+            "track": research["track"],
+            "experiment": research.get("experiment", "caernet_reproduction"),
+            "variant": experiment_variant(research) or "clean_inrepo_caer_s_content_disjoint_v1",
+            "model_type": config["model"]["type"],
+            "modalities": list(modalities),
+            "protocol": research["protocol"],
             "git_sha": git_sha(),
             "git_dirty": git_dirty(),
             "config": repository_relative(config_path),
@@ -565,10 +649,10 @@ def train(args: argparse.Namespace) -> None:
             "manifest": repository_relative(manifest_path),
             "manifest_sha256": sha256(manifest_path),
             "test_used_for_selection": False,
-            "notes": clean_run_notes(str(config["research"]["stage"])),
+            "notes": clean_run_notes(str(research["stage"]), experiment_variant(research)),
             "started_at_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         }
-        metadata_path = write_metadata(metadata)
+        metadata_path = metadata_directory / "run_metadata.json"
     print(f"Run ID: {run_id}")
     print(f"Metadata: {metadata_path}")
     print(f"Output: {output_dir}")
@@ -601,6 +685,7 @@ def train(args: argparse.Namespace) -> None:
         split="train",
         face_transform=train_face_transform,
         context_transform=train_context_transform,
+        modalities=modalities,
     )
     val_dataset = CAERSTwoStreamDataset(
         manifest_path,
@@ -608,6 +693,7 @@ def train(args: argparse.Namespace) -> None:
         split="val",
         face_transform=val_face_transform,
         context_transform=val_context_transform,
+        modalities=modalities,
     )
     generator = torch.Generator().manual_seed(args.seed)
     loader_args = {
@@ -625,7 +711,7 @@ def train(args: argparse.Namespace) -> None:
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_args)
 
     device = torch.device("cuda:0")
-    base_model = CAERNet(**config["model"]["args"]).to(device)
+    base_model = build_model(config["model"]).to(device)
     params = sum(parameter.numel() for parameter in base_model.parameters() if parameter.requires_grad)
     model: nn.Module = (
         nn.DataParallel(base_model, device_ids=list(range(n_gpu))) if n_gpu > 1 else base_model
@@ -637,26 +723,31 @@ def train(args: argparse.Namespace) -> None:
     if args.smoke_only:
         model.eval()
         batch = next(iter(val_loader))
+        face = batch.get("face")
+        context = batch.get("context")
         with torch.inference_mode():
-            logits = model(batch["face"].to(device), batch["context"].to(device))
-        print(
-            json.dumps(
-                {
-                    "status": "smoke_passed",
-                    "n_gpu": n_gpu,
-                    "face_shape": list(batch["face"].shape),
-                    "context_shape": list(batch["context"].shape),
-                    "logits_shape": list(logits.shape),
-                    "test_accessed": False,
-                },
-                indent=2,
+            logits = model(
+                face.to(device) if face is not None else None,
+                context.to(device) if context is not None else None,
             )
-        )
+        smoke_result: dict[str, Any] = {
+            "status": "smoke_passed",
+            "n_gpu": n_gpu,
+            "modalities": list(modalities),
+            "logits_shape": list(logits.shape),
+            "test_accessed": False,
+        }
+        if face is not None:
+            smoke_result["face_shape"] = list(face.shape)
+        if context is not None:
+            smoke_result["context_shape"] = list(context.shape)
+        print(json.dumps(smoke_result, indent=2))
         return
 
     if resume_path is None:
         output_dir.mkdir(parents=True, exist_ok=False)
         (output_dir / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        write_metadata(metadata)
     logger = setup_logger(output_dir / "train.log")
     wandb_run = None
     if args.wandb_mode != "disabled":
@@ -672,8 +763,10 @@ def train(args: argparse.Namespace) -> None:
             tags=[
                 "caer-net",
                 "clean-inrepo",
-                str(config["research"]["stage"]),
-                config["research"]["protocol"],
+                str(research["stage"]),
+                str(research.get("experiment", "caernet_reproduction")),
+                str(metadata["variant"]),
+                research["protocol"],
             ],
         )
 

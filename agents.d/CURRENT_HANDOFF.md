@@ -1,15 +1,16 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-23 02:44 UTC. Live process state can change after this
+Last updated: 2026-07-23 03:09 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
 
 The research goal is CD-ICA-Net for CAER-S: iterative bidirectional
 face-context interaction followed by post-interaction debiasing and adaptive or
-gated fusion. Experiment 1 now has a completed, clean in-repository CAER-Net
-three-seed final validation baseline. Do not implement cross-attention, CCIM,
-or CD-ICA-Net until the next experiment is explicitly scoped.
+gated fusion. Experiment 1 has a completed, clean in-repository CAER-Net
+three-seed final validation baseline. Experiment 2 input ablations are now
+scoped and code/config acceptance is complete; exploratory compute has not yet
+been launched. Do not implement cross-attention, CCIM, or CD-ICA-Net yet.
 
 Read these files before changing experiments:
 
@@ -19,6 +20,7 @@ Read these files before changing experiments:
 4. `agents.d/EXPERIMENT_PROTOCOL.md`
 5. `reports/amd_rocm_migration_20260722.md`
 6. `reports/experiment1_clean_inrepo_final_results.md`
+7. `reports/experiment2_input_ablation_plan.md`
 
 ## Live State and Repository
 
@@ -26,7 +28,8 @@ Read these files before changing experiments:
 - Do not modify the older dirty checkout at `/home/taqiyudinmiftah/risetv2`.
 - All three final runs below have `status: completed`; each has 45 contiguous
   epochs and a completed metadata record.
-- GPU 0 had no KFD process at the final check. Verify `tmux list-sessions`,
+- At the 2026-07-23 03:09 UTC check, the old final-baseline tmux pane was
+  `dead` with status 0 and GPU 0 had no KFD PID. Verify `tmux list-sessions`,
   `rocm-smi --showpids`, metadata, and `history.json` before taking any action;
   do not start a duplicate run.
 - Runtime directories (`CAER-S`, `artifacts`, `checkpoints`, `wandb`) are local
@@ -106,15 +109,47 @@ not to be retrained: accuracy `0.747260 +/- 0.017827`, macro F1
 `0.745922 +/- 0.014118`, Neutral F1 `0.560688 +/- 0.017333`. Test was not
 accessed. See `reports/experiment1_caernet_final_results.md`.
 
+## Experiment 2: Strict Input Ablation Ready
+
+- The old `CAERNet` `use_face` / `use_context` flags are invalid as strict
+  ablations: fusion weights see both streams before an inactive feature is
+  zeroed. Do not flip those booleans for Experiment 2.
+- `CAERNetSingleStream` is now the strict component baseline. Face-only
+  constructs only the face crop/tensor; context-only constructs only the
+  face-masked context tensor and retains CAER-Net's context self-attention.
+  The inactive tensor is absent from the batch and has no model path.
+- Frozen exploratory configs, both seed 42 / one RX 6600 / FP32 / 45 epochs /
+  validation macro-F1 selection:
+  - `configs/experiments/caernet_clean_input_ablation_face_only_content_disjoint_exploratory_seed42.json`
+    (`32d320cf3e8a0c41cbd0f0d3458598ff2c0a1086916faa74e0d9e113c60e8792`)
+  - `configs/experiments/caernet_clean_input_ablation_context_only_content_disjoint_exploratory_seed42.json`
+    (`04173be7b22f69eb50d431dc24ab54bd91dc6c6993210b1fe920c34bcbe9cb53`)
+- Expected parameter counts: face-only 1,014,279; context-only 1,310,730;
+  completed face+context CAER-Net control 2,390,028. Treat this as an
+  input/component ablation, not capacity-matched causal evidence.
+- Reuse `caernet__clean_inrepo__seed42__20260722_043253` for the exploratory
+  face+context control, and reuse the three completed final clean controls for
+  later accepted final comparisons. Do not retrain face+context.
+- Isolation tests establish exact output invariance to a supplied inactive
+  tensor, dataset tests show it is not constructed, launcher/registry tests
+  keep test columns blank, and the validation-only verifier supports the new
+  model type. The full suite passed 66 tests. Both configs passed `--dry-run`
+  without runtime output and a GPU-0 one-batch logical-validation smoke with
+  logits `[128, 7]` and `test_accessed: false`.
+- See `reports/experiment2_input_ablation_plan.md` for the frozen contract and
+  interpretation boundary.
+
 ## Next Work
 
-1. Preserve the completed final result package and verify a clean worktree
-   before changing experiments; do not stage ignored runtime artifacts.
-2. Scope and freeze Experiment 2 input ablations (face-only, context-only, and
-   face+context) under the same protocol/budget before allocating compute.
-3. Keep logical test locked. Do not obtain a test score merely because this
-   baseline is complete; final test evaluation belongs only to a declared final
-   candidate and protocol.
+1. Commit/push the Experiment 2 implementation and acceptance package, then
+   launch face-only and context-only seed-42 exploratory runs serially on GPU
+   0 with distinct run IDs. Do not launch a face+context duplicate.
+2. On completion, audit metadata/histories and run
+   `verify_clean_validation.py` for each selected checkpoint over logical
+   validation only. Promote to final seeds only after accepting those results.
+3. Keep logical test locked. There is no test metric for the clean baseline;
+   final test evaluation requires a declared final candidate and explicit
+   one-time unlock protocol.
 
 ## Verified Commands
 

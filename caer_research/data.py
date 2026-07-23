@@ -100,8 +100,23 @@ def build_transforms(train: bool) -> tuple[Callable[[Image.Image], torch.Tensor]
     return face_transform, context_transform
 
 
+def normalize_modalities(modalities: Iterable[str] | None = None) -> tuple[str, ...]:
+    """Return a canonical non-empty subset of the supported input modalities."""
+
+    supported = ("face", "context")
+    if modalities is None:
+        return supported
+    requested = {str(modality) for modality in modalities}
+    if not requested:
+        raise ValueError("At least one input modality is required.")
+    unknown = sorted(requested - set(supported))
+    if unknown:
+        raise ValueError(f"Unsupported input modalities: {unknown!r}.")
+    return tuple(modality for modality in supported if modality in requested)
+
+
 class CAERSTwoStreamDataset(Dataset[dict[str, Any]]):
-    """Load face crops and face-masked context from the frozen JSONL manifest."""
+    """Load only the requested face crop and/or face-masked context tensors."""
 
     def __init__(
         self,
@@ -110,12 +125,14 @@ class CAERSTwoStreamDataset(Dataset[dict[str, Any]]):
         split: str,
         face_transform: Callable[[Image.Image], Any] | None = None,
         context_transform: Callable[[Image.Image], Any] | None = None,
+        modalities: Iterable[str] | None = None,
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.dataset_root = Path(dataset_root)
         self.split = split
         self.face_transform = face_transform
         self.context_transform = context_transform
+        self.modalities = normalize_modalities(modalities)
         self.samples = load_manifest(self.manifest_path, split=split)
 
     def __len__(self) -> int:
@@ -129,19 +146,21 @@ class CAERSTwoStreamDataset(Dataset[dict[str, Any]]):
         with Image.open(image_path) as source:
             image = source.convert("RGB")
 
-        face = crop_face(image, sample.face_bbox)
-        context = mask_face(image, sample.face_bbox)
-        if self.face_transform is not None:
-            face = self.face_transform(face)
-        if self.context_transform is not None:
-            context = self.context_transform(context)
-
-        return {
-            "face": face,
-            "context": context,
+        item: dict[str, Any] = {
             "label": torch.tensor(LABEL_TO_INDEX[sample.label], dtype=torch.long),
             "label_name": sample.label,
             "sample_id": sample.sample_id,
             "image_path": sample.image_path,
             "bbox": torch.tensor(sample.face_bbox, dtype=torch.float32),
         }
+        if "face" in self.modalities:
+            face = crop_face(image, sample.face_bbox)
+            if self.face_transform is not None:
+                face = self.face_transform(face)
+            item["face"] = face
+        if "context" in self.modalities:
+            context = mask_face(image, sample.face_bbox)
+            if self.context_transform is not None:
+                context = self.context_transform(context)
+            item["context"] = context
+        return item

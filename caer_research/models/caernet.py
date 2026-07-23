@@ -105,6 +105,75 @@ class FusionNetwork(nn.Module):
         return self.fc2(features)
 
 
+class SingleStreamClassifier(nn.Module):
+    """Classify one pooled CAER-Net encoder stream without cross-stream fusion."""
+
+    def __init__(self, num_classes: int = 7) -> None:
+        super().__init__()
+        self.batch_norm = nn.BatchNorm1d(256)
+        self.fc1 = nn.Linear(256, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+        self.dropout = nn.Dropout()
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        features = F.avg_pool2d(features, features.shape[2]).view(features.shape[0], -1)
+        features = self.batch_norm(features)
+        features = self.dropout(F.relu(self.fc1(features)))
+        return self.fc2(features)
+
+
+class CAERNetSingleStream(nn.Module):
+    """Strict face-only or context-only CAER-Net component baseline.
+
+    The selected modality is the sole tensor read during ``forward``.  The
+    context path retains CAER-Net's original context self-attention; the face
+    path retains its original encoder path.  This intentionally differs from
+    ``FusionNetwork.use_face/use_context``: those legacy flags zero a feature
+    only after the two-stream adaptive weights have already seen both inputs.
+    """
+
+    _VALID_MODALITIES = frozenset({"face", "context"})
+
+    def __init__(self, modality: str, num_classes: int = 7) -> None:
+        super().__init__()
+        if modality not in self._VALID_MODALITIES:
+            raise ValueError(
+                f"Unsupported single-stream modality {modality!r}; "
+                f"expected one of {sorted(self._VALID_MODALITIES)!r}."
+            )
+        self.modality = modality
+        channels = [3, 32, 64, 128, 256, 256]
+        self.encoding_module = Encoder(channels)
+        self.attention_inference_module: Encoder | None = None
+        if modality == "context":
+            self.attention_inference_module = Encoder([256, 128, 1], max_pool=False)
+        self.classifier = SingleStreamClassifier(num_classes=num_classes)
+
+    def _context_features(self, context: torch.Tensor) -> torch.Tensor:
+        features = self.encoding_module(context)
+        if self.attention_inference_module is None:
+            raise RuntimeError("Context-only CAER-Net is missing its attention module.")
+        attention = self.attention_inference_module(features)
+        batch, channels, height, width = attention.shape
+        attention = F.softmax(attention.view(batch, -1), dim=-1).view(batch, channels, height, width)
+        return features * attention
+
+    def forward(
+        self,
+        face: torch.Tensor | None = None,
+        context: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if self.modality == "face":
+            if face is None:
+                raise ValueError("Face-only CAER-Net requires a face tensor.")
+            # The inactive context argument is deliberately never read.
+            return self.classifier(self.encoding_module(face))
+        if context is None:
+            raise ValueError("Context-only CAER-Net requires a context tensor.")
+        # The inactive face argument is deliberately never read.
+        return self.classifier(self._context_features(context))
+
+
 class CAERNet(nn.Module):
     """CAER-Net matching the upstream-community state-dict layout."""
 
