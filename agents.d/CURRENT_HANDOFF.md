@@ -1,6 +1,6 @@
 # Current Codex Handoff
 
-Last updated: 2026-07-23 03:09 UTC. Live process state can change after this
+Last updated: 2026-07-23 03:13 UTC. Live process state can change after this
 timestamp; verify it before acting.
 
 ## Mission and Current Phase
@@ -8,9 +8,10 @@ timestamp; verify it before acting.
 The research goal is CD-ICA-Net for CAER-S: iterative bidirectional
 face-context interaction followed by post-interaction debiasing and adaptive or
 gated fusion. Experiment 1 has a completed, clean in-repository CAER-Net
-three-seed final validation baseline. Experiment 2 input ablations are now
-scoped and code/config acceptance is complete; exploratory compute has not yet
-been launched. Do not implement cross-attention, CCIM, or CD-ICA-Net yet.
+three-seed final validation baseline. Experiment 2 input ablations are scoped
+and code/config acceptance is complete. The face-only exploratory run is active
+and context-only is queued serially after it. Do not implement cross-attention,
+CCIM, or CD-ICA-Net yet.
 
 Read these files before changing experiments:
 
@@ -28,10 +29,22 @@ Read these files before changing experiments:
 - Do not modify the older dirty checkout at `/home/taqiyudinmiftah/risetv2`.
 - All three final runs below have `status: completed`; each has 45 contiguous
   epochs and a completed metadata record.
-- At the 2026-07-23 03:09 UTC check, the old final-baseline tmux pane was
-  `dead` with status 0 and GPU 0 had no KFD PID. Verify `tmux list-sessions`,
-  `rocm-smi --showpids`, metadata, and `history.json` before taking any action;
-  do not start a duplicate run.
+- Active session: `caer-input-ablation-exploratory-20260723_101124`.
+  It runs face-only first and then context-only through one serial shell; do
+  not launch either variant separately or in parallel.
+- Active face-only run ID:
+  `caernet__input_ablation_face_only_exploratory__seed42__20260723_101124`.
+  Its metadata is `status: running`, `git_sha:
+  4a23c8981575e39fe0555519f708e1d704d3422d`, `git_dirty: false`, device 0
+  RX 6600, and `test_used_for_selection: false`.
+- Queued context-only run ID:
+  `caernet__input_ablation_context_only_exploratory__seed42__20260723_101124`.
+  It must start only after face-only exits successfully.
+- The old final-baseline tmux pane remains `dead` with status 0. Verify
+  `tmux list-sessions`, `rocm-smi --showpids`, current metadata, and
+  `history.json` before taking any action. ROCm's KFD table may print GPU node
+  `1`; rely on run metadata (`requested_index: 0`, RX 6600 LE) and never select
+  the integrated gfx1103 device.
 - Runtime directories (`CAER-S`, `artifacts`, `checkpoints`, `wandb`) are local
   and ignored. Never commit datasets, checkpoints, W&B media, or credentials.
 - `experiments/registry.csv` is a legitimate runtime update from the three
@@ -138,13 +151,16 @@ accessed. See `reports/experiment1_caernet_final_results.md`.
   logits `[128, 7]` and `test_accessed: false`.
 - See `reports/experiment2_input_ablation_plan.md` for the frozen contract and
   interpretation boundary.
+- The active run uses device 0 only, FP32, offline W&B, the recorded
+  train/validation detector hashes, and no test detector hash. Do not modify
+  its code/config/checkpoint directory while it is running.
 
 ## Next Work
 
-1. Commit/push the Experiment 2 implementation and acceptance package, then
-   launch face-only and context-only seed-42 exploratory runs serially on GPU
-   0 with distinct run IDs. Do not launch a face+context duplicate.
-2. On completion, audit metadata/histories and run
+1. Monitor the one active serial session. Do not start a face+context duplicate
+   or a second face/context run. If the session fails, preserve its metadata and
+   diagnose before deciding whether a guarded resume is valid.
+2. Once both runs complete, audit metadata/histories and run
    `verify_clean_validation.py` for each selected checkpoint over logical
    validation only. Promote to final seeds only after accepting those results.
 3. Keep logical test locked. There is no test metric for the clean baseline;
